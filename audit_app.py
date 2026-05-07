@@ -5,1004 +5,45 @@ import json
 import io
 import time
 
+st.set_page_config(page_title="ASE AI 智慧稽核系統 (檔案匯入版)", layout="wide")
+
 # ==========================================
-# 1. 雲端安全金鑰 (請至 Streamlit Cloud 設定 Secrets)
+# 1. 🔑 雲端金鑰載入
 # ==========================================
-try:
-    API_KEY = st.secrets["API_KEY"]
-except:
-    st.error("❌ 找不到 API_KEY！請在 Streamlit Cloud 的 Advanced Settings -> Secrets 設定。")
+if "API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["API_KEY"])
+else:
+    st.error("❌ 找不到 API_KEY！請在 Secrets 設定。")
     st.stop()
 
 MODEL_NAME = "models/gemini-2.5-flash" 
-genai.configure(api_key=API_KEY)
-
-st.set_page_config(page_title="ASE AI 智慧稽核系統 (專業雲端版)", layout="wide")
 
 # ==========================================
-# 2. 內嵌數據庫 (請把之前的 CSV 內容貼在引號內)
+# 2. 📂 讀取上傳至 GitHub 的 ARR_checklist.csv
 # ==========================================
-CSV_CONTENT = """
-Subject	Category Check Item	New Category	English	Category Check Items	Criteria
-Man	A0101	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Training Schedule
-訓練排程"	"If you have established all year or all quarter exercise plan an execute in sure?
-是否有制定整年度或季度的訓練計劃並確實在實施?"
-Man	A0102	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Training Material
-訓練教材"	"Does the training exercise have teaching material?
-教育訓練是否備有教材?"
-Man	A0103	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Training Material
-訓練教材"	"Defective visual aid material, training material shall be reviewed or updated periodically.
-缺點目視輔助教材、訓練教材須定期被審查或更新。"
-Man	A0104	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Personnel Certified
-人員認證"	"Whether the instructor has accepted the training?
-講師是否受過訓練?(EX:訓練指導員/大姐姐 etc...)"
-Man	A0105	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Personnel Certified
-人員認證"	"Personnel shall be well trained and available training records.
-人員須有良好的訓練及有效的訓練紀錄。"
-Man	A0106	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Working Instruction
-作業指示書"	"Personnel shall know how to open and use the related manufacturing system. (SPEC / SPC / MES / EMS etc…)
-人員須知道如何打開和使用製造相關應用系統。(SPEC / SPC / MES / EMS etc…)"
-Man	A0107	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Working Instruction
-作業指示書"	"Personnel shall easily find out operation process or data of the station.
-人員能輕易地找出當站的作業流程或資料。"
-Man	A0108	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Product Design Skills
-產品設計技能"	"Weather engineer have ability to handling product and process? Engineers handle automotive/ functional safety/ cybersecurity products should also have ability to meet requirement.
-業務相關人員(直接/間接)是否有能力符合產品及製程上的需求？負責車用產品/ 安全性產品之人員亦需具備車用產品/ 功能安全/ 網宇安全產品之能力需求。"
-Man	A0109	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Handing Skill
-操作技能"	"New personnel (without qualification ) can't operate the machine alone.
-新進人員(尚未認證)操作機台須有資深人員陪同不可單獨操作機台。"
-Man	A0110	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Handing Skill
-操作技能"	"Personnel shall operate with the work flow familiarly. Ex: Machine handling, product inspection, customer special request.
-人員必須熟練其作業流程。例如：機台操作、產品檢驗、客戶特殊需求。"
-Man	A0111	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Certificated
-資格認證"	"Personnel shall have qualification certificate of the station, EHS, automotive/functional safety/ cybersecurity, ESD, security or customer special request when operating the machine. 
-人員 操作當站機台 須有當站、一般環安衛、車用/ 功能安全/ 網宇安全、ESD、資安或客戶特殊需求的資格/能力認證或評鑑…等；且須在有效期限內。"
-Man	A0112	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Certificated
-資格認證"	"Personnel qualification certificate or training record shall be prior to expiration date.
-人員資格卡或訓練紀錄須在有效期限內。"
-Man	A0113	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Special Certificated
-特殊認證"	"Whether you will execute to supervise again aiming at the member that can't contact his origin job for a long time or work efficiency is very low?
-對於許久未接觸原來工作或有品質重大異常之人員工作效率較差之人員，是否實施再鑑定?"
-Man	A0114	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"Continuous improvement
-持續改善"	"Training effectiveness is analyzed and improved.
-訓練的有效性有被分析且依據分析結果去改善訓練成效。"
-Man	A0115	"Training / Certificate
-訓練 / 認證"	Training / Certificate	"ATV certificate
-車用人員認證"	"Operator run automotive / functional safety/ cybersecurity products should be certified by automotive training with training record and check the awareness of  automotive / functional safety/ cybersecurity. (e.g. Quality policy card)
-負責生產車用/ 功能安全/ 網宇安全產品的作業人員，一定要通過車用認證訓練且有訓練紀錄，並確認人員具有相對應的品質車用/ 功能安全/ 網宇安全意識 (例如：品質政策小卡)。"
-Machine	A0201	"Equipment Buy-off
-設備驗收"	Equipment Buy-off	"Buy-off and Release Procedure
-驗收和放行流程"	"Shall have the buy-off and release methodology and criteria defined in specification for equipment / tooling / inspection equipment. (Normal, automotive and functional safety/ cybersecurity are covered.)
-驗收及放行設備/ 模具/檢驗儀器的方法及規格須被定義在規範中。(包含一般、車用以及功能安全與網宇安全)"
-Machine	A0202	"Equipment Buy-off
-設備驗收"	Equipment Buy-off	"Buy-off and Release Record
-驗收和放行紀錄"	"Shall have the related record and evidence of equipment / tooling / inspection equipment buy-off and release. (Normal, automotive and functional safety/ cybersecurity are covered.)
-設備/模具/檢驗儀器須有驗收及放行的紀錄及佐證。(包含一般、車用以及功能安全與網宇安全)"
-Machine	A0203	"Equipment Buy-off
-設備驗收"	Equipment Buy-off	"Equipment Re-layout
- 機台重新配置"	"Shall have the buy-off and release methodology and criteria  defined in specification and execute record when equipment re-layout. (Normal, automotive and functional safety/ cybersecurity are covered.)
-當設備重新配置時，驗收及放行方法及規格須被定義在規範中且有執行紀錄。(包含一般、車用以及功能安全與網宇安全)"
-Machine	A0301	"PM
-保養"	PM	"PM Procedure
-保養流程"	"Equipment / tooling/ inspection equipment shall have the maintenance methodology, criteria and abnormal handling defined in specification.
-設備/模具/檢驗儀器的保養方法、規格及異常處置須被定義在規範中。"
-Machine	A0302	"PM
-保養"	PM	"PM Schedule
-保養排程"	"Shall follow each maintenance interval (Ex. Weekly, bi-weekly, quarterly, semi-annual and yearly) to set up schedule for equipment / tooling/ inspection equipment  maintenance.
-要依各保養週期 (週、雙週、月、季、半年、年) 訂立設備 / 模具/檢驗儀器的保養排程。"
-Machine	A0303	"PM
-保養"	PM	"Auto Hold
-自動停機"	"Equipment shall have auto notification and machine shutdown control.
-設備須有自動通知和機台停機管控。"
-Machine	A0304	"PM
-保養"	PM	"PM Execute
-保養執行"	"Regulative maintenance items shall be executed maintenance and inspection periodically.
-規定的保養項目，須依其項目確實執行保養及檢查。"
-Machine	A0305	"PM
-保養"	PM	"Spare Parts
-備用零件"	"Shall be availability of replacement parts for key manufacturing equipment.
-關鍵製造設備的更換零件須備妥。"
-Machine	A0306	"PM
-保養"	PM	"PM Record
-保養紀錄"	"Maintenance records shall be sure to correspond with the definition. (Ex. PM item, maintenance schedule, maintenance result, machine No., S/N No., abnormal handling result and etc.)
-保養記錄須確實，並符合定義。(例如:保養項目、保養週期、保養結果、機台編號、序號及異常處置等等...)"
-Machine	A0307	"PM
-保養"	PM	"PM Label
-保養標籤"	"The information and date in maintenance stickers shall be correct.
-PM標籤上的資訊及日期須是正確的。"
-Machine	A0308	"PM
-保養"	PM	"Predictive Maintenance
-預測性維護"	"Shall collect the related data of equipment abnormal cause and correction.
-須收集設備異常原因及改善的資料。"
-Machine	A0309	"PM
-保養"	PM	"Predictive Maintenance
-預測性維護"	"EE should utilize predictive maintenance methods to continually improve the effectiveness of its preventive system.
-EE應利用預知性維護方法以持續改進其預防系統的有效性。"
-Machine	A0310	"PM
-保養"	PM	"Equipment Status
-機台狀態"	"Clearly indicate machine's status (Ex. Maintenance, repair or unloaded setting, and etc.) and inspect if machine's indicators are in consistence.
-明確標示機台狀態 (例如：保養、維修或設定中...等)，並檢視機台指示燈一致。"
-Machine	A0311	"PM
-保養"	PM	"Equipment Indicator
-機台標示"	"The instrument's indicators and specification shall be the same.
-儀錶標示需與規範須一致。"
-Machine	A0312	"PM
-保養"	PM	"Equipment Alarm Function
-機台警示功能"	"The alarm system of machine is working normally.
-機台的警報機制正常。"
-Machine	A0401	"Tooling Management
-治具管理"	Tooling Management	"Tooling Management Procedure
-治具管理流程"	"Tooling, parts and gauge shall have the management methodology defined in specification.
-模具、零件及治具的管理方法須被定義在規範中。"
-Machine	A0402	"Tooling Management
-治具管理"	Tooling Management	"Tooling System Management
-治具系統管理"	"Clearly status for tooling, parts and gauge indicated in tooling system. (Ex: Maintenance, repair, unloaded setting, set up, number, life time, and etc.)
-模具、零件及治具的狀態有清楚呈現在管理系統。 (例如： 保養、維修、下載、架機、 數量、壽命等等...)"
-Machine	A0403	"Tooling Management
-治具管理"	Tooling Management	"Tooling Traceability
-治具追溯"	"The type of tooling, parts and gauge shall be shown in WI or travel.
-模具、零件及治具的種類須被顯示在WI 或路單。"
-Machine	A0404	"Tooling Management
-治具管理"	Tooling Management	"Tooling Indicator
-治具標示"	"Shall have identification method on tooling, parts and gauge. (Ex: Barcode label, Label, board and etc.
-模具、零件及治具上須有識別的方法。(例如:條碼標籤,標籤,標示牌等等…)"
-Machine	A0405	"Tooling Management
-治具管理"	Tooling Management	"Tooling Maintenance
-治具維護"	"Related tooling, parts or gauge shall be changed, repaired, or cleaned according to the specification. (Ex: blade, ejector, rubber tip, mold and etc.)
-模具、零件及治具須依據規定執行更換、維修或清潔。(例如：切割刀、頂針、吸嘴、模具等等...)"
-Machine	A0406	"Tooling Management
-治具管理"	Tooling Management	"Tooling Record
-治具紀錄"	"Shall have the related records of tooling, parts or gauge. (Ex. change record, repair record, clean record, quality verified record and etc..)
-模具、零件及治具須有相關的紀錄。(例如: 更換紀錄, 維修紀錄, 清潔記錄, 品質確認紀錄等等...)"
-Machine	A0407	"Tooling Management
-治具管理"	Tooling Management	"Tooling Management
-治具管理"	"The tooling, parts and gauge shall be placed in order without mess.
-模具、零件及治具要依規定擺放且不可雜亂。"
-Machine	A0501	"Calibration
-校正"	Calibration	"Calibration Procedure
-校正流程"	"Shall have the process employed for the calibration of production machine/measuring machine/calibration standard is defined including details of equipment type, unique identification, location, frequency of calibration, calibration methods, acceptance criteria and the action to be taken when results are unsatisfactory.
-必須有界定生產機台/量測機台/校正標準件的校正作業程序包含：設備型式、 特定識別、 位置、 檢核頻率、 檢核方法、 允收準則、 矯正措施。"
-Machine	A0502	"Calibration
-校正"	Calibration	"Calibration Schedule
-校正排程"	"Shall follow each calibration interval (Ex. bi-weekly, seasonal, semi-annual and yearly) to set up schedule for Production machine/measuring machine/calibration standard.
-要依各校正週期 (月、季、半年、年) 訂立生產機台/量測機台/校正標準件校正排程。"
-Machine	A0503	"Calibration
-校正"	Calibration	"Calibration Label
-校正標籤"	"Production machine/measuring machine/calibration standard shall  adhere to available label, then the information and date of label shall be correct. (Ex. Calibration sticker, For Indication Only sticker, Void Calibration not for use sticker, Limited use sticker, Calibration void if seal broken sticker and etc.)
-生產機台/量測機台/校正標準件須有貼合適的校正標籤，且標籤上的資訊及日期是正確的。(例如:合格標籤、免校正標籤、停用標籤、限用標籤封籤等等...)"
-Machine	A0504	"Calibration
-校正"	Calibration	"Auto Hold
-自動停機"	"Equipment shall have auto notification and machine shutdown control.
-設備須有自動通知和機台停機管控。"
-Machine	A0505	"Calibration
-校正"	Calibration	"Calibration Execute
-校正執行"	"Regulative calibration items shall be executed calibration and correction periodically.
-規定的校正項目，須依其項目確實執行校正或校準。"
-Machine	A0506	"Calibration
-校正"	Calibration	"Calibration Standard Storage
-校正標準件的存放"	"Are the reference devices (standard equipment) used for base-point calibrations (0 point, maker's scale, etc.) ,measuring equipment, tools, and jigs correctly stored, managed and calibrated to NIST standards? 
-是否對用來作基準校正用的標準設備、測量設備、工裝、夾具作正確的存放與管理?"
-Machine	A0507	"Calibration
-校正"	Calibration	"Calibration Fool Proof
-校正防呆"	"Are measuring equipment safeguarded from unauthorized adjustment or re-adjustment?
-所有的設備是否有保護措施以防止未經許可的調整？"
-Machine	A0508	"Calibration
-校正"	Calibration	"Improvement Action
-改善行動"	"Is there a process for disposition if product has been built/tested with equipment found to be out of calibration?
-當設備校驗發現異常時，是否有流程對此設備檢測的產品進行處理?"
-Machine	A0509	"Calibration
-校正"	Calibration	"Calibration Record
-校正紀錄"	"In modification reports of production machine / measuring machine / calibration standard, the calibration result shall be passed and covered the usage range, then machine can be operated.
-生產機台/量測機台/校正標準件的校正報告資料中，校正結果必須為通過且包含使用範圍，機台才能作業。"
-Machine	A0510	"Calibration
-校正"	Calibration	"Golden Unit / Standard
-標準件"	"Availability of golden unit and correlation unit.
-有效的校正標準件。"
-Machine	A0511	"Calibration
-校正"	Calibration	"Golden Unit / Standard
-標準件"	"Calibration standards shall be controlled by serial numbers.
-校正標準件要作序號管制。"
-Machine	A0601	"MSA
-測量系統分析"	MSA	"MSA Procedure
-測量系統分析流程"	"Shall have MSA methodology, criteria and abnormal handling defined in specification.
-MSA的方法、規格及異常處置需要被定義在規範中。"
-Machine	A0602	"MSA
-測量系統分析"	MSA	"MSA /GR&R  Schedule
-測量系統分析的排程"	"Shall follow each MSA/GR&R (Ex. bi-weekly, seasonal, semi-annual and yearly) to set up schedule for measuring machine, inspection equipment.
-要依各MSA/GR&R週期 (月、季、半年、年) 訂立量測機台/檢驗設備的MSA/GR&R排程。"
-Machine	A0603	"MSA
-測量系統分析"	MSA	"Auto Hold
-自動停機"	"Auto notification and machine shutdown control.
-自動通知和機器停機控制。"
-Machine	A0604	"MSA
-測量系統分析"	MSA	"MSA/GR&R Report
-MSA /GR&R 報告"	"Measuring equipment should have MSA/GR&R records.
-量測設備必須有MSA/GR&R的報告。"
-Machine	A0605	"MSA
-測量系統分析"	MSA	"MSA/GR&R Sticker
-MSA /GR&R 標籤"	"Measuring equipment should attached MSA/GR&R sticker, the information in MSA/GR&R stickers shall be correct, also the date of MSA/GR&R sticker shall be within regulative period.
-量測設備必須有MSA/GR&R的標籤，標籤上的資訊須是正確的，且MSA/GR&R標籤之日期須在規定的期限內。"
-Machine	A0606	"MSA
-測量系統分析"	MSA	"Improvement Action
-改善行動"	"Does any action take when GR&R over or near 10%?
-當GR&R值超出或在邊緣規格時，是否有計畫改善行動與執行? "
-Material	A0701	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Protection when transporting material
-材料運送時的防護"	"Protective method shall be defined for the characteristics of the product / material packing and transportation.
-針對產品/材料之特性應定義包裝及運送的防護方法。"
-Material	A0702	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Protection when transporting material
-材料運送時的防護"	"Shall use an applicable conveyance.
-須使用適當的運送工具。"
-Material	A0703	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Protection when transporting material
-材料運送時的防護"	"Packing and transportation handling operation of product / material shall be aligned specification definition.
-產品/材料的包裝及運送動作應符合規範之定義。"
-Material	A0704	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Material storage environment and method
-材料儲存的環境管理"	"Storage conditions of product / material shall be defined in specification.
-產品/材料的儲存條件應被定義在規範中。"
-Material	A0705	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Material storage environment and method
-材料儲存的環境管理"	"The environment conditions of product / material storage shall be monitored and be recorded. (Ex. The N2 cabinet/dry box/refrigerator)
-儲存產品/材料的環境條件應被監控及記錄。(例如：氮氣櫃/乾燥箱/冰箱...)"
-Material	A0706	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Material storage environment and method
-材料儲存的環境管理"	"There are alarm system then storage condition out of control.
-儲存的條件如果超出管制，有警示系統。"
-Material	A0707	"Protection / Storage
-防護 / 儲存"	Protection / Storage	"Material storage environment and method
-材料儲存的環境管理"	"Shall have nonconforming product/material handling procedure when product/material affected by out of environment spec conditions.
-當環境異常而影響產品/材料時，應有不符合產品及材料異常處理。"
-Material	A0801	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"Identification marking of material
-材料的識別"	"Shall identify the type, lot no., Mfg date and expire date in material.
-可識別出材料的名稱、Lot No.、製造日期及有效期限 。"
-Material	A0802	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"Identification marking of material
-材料的識別"	"Shall have clear indicators and be in proper order in material placement area. (Ex. good/ nonconforming, Green/ non-Green, ULA/ non-ULA, Passed area, thawing or stabilizing area and etc.)
-材料擺放區須有清楚標示並依規定擺放。(Ex. 良品/ 不良品、綠色/ 非綠色、ULA/ 非ULA、Pass 區、回濕或回冰區等等...)"
-Material	A0803	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"Identification marking of material
-材料的識別"	"Shall record the used material during operation while inquiring the form record and MES system. (Ex. epoxy, flux, compound, solder ball, and etc.)
-查詢表單記錄及MES系統須確實紀錄作業時所使用的材料(如 epoxy, flux, compound, solder ball....)"
-Material	A0804	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	"There is system control for material. (Ex. MES system, SAP system, bar-code system and etc.)
-材料有利用系統管理。(例如: MES system, SAP system, bar-code system and etc.) "
-Material	A0805	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	"Shall assess the condition of material in stock regularly.
-有定期檢查庫存材料的狀況。"
-Material	A0806	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	There is FIFO control for material.材料有先進先出管理。
-Material	A0807	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	Materials shall be monitored to be thawed and stabilized  and also be recorded.材料需依規定執行回濕或回溫的控制及記錄。
-Material	A0808	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	If the material is over due, it shall be held in system.若材料過期時，應被停止作業於系統。
-Material	A0809	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is deadline control for material
-材料的期限管理"	"If the material is over due, it shall be handled by over due material operation procedure.
-所有使用的材料(如 epoxy, flux, compound, solder ball....)若是過期時，應依不符合材料處置措施作業。"
-Material	A0810	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is Q-time control for material
-材料的Q-time 管理"	"Life time and queue time control of product / material shall be defined in specification.
-產品/材料的有效壽命/留置時間的管控程序應定義於規範中。"
-Material	A0811	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is Q-time control for material
-材料的Q-time 管理"	"There is system control for life time and queue time of product / material. (Ex. MES system, SAP system, bar-code system and etc.)
-有利用系統管控產品/材料的有效壽命/留置時間。(例如：MES system, SAP system, 條碼系統及警示系統等等...) "
-Material	A0812	"Identify / Traceability
-識別 / 追朔"	Identify / Traceability	"There is Q-time control for material
-材料的Q-time 管理"	"If life time and queue time of product / material out of the required time, there is a suitable OCAP be implemented.
-若產品/材料的有效壽命/留置時間超出所要求的時間，有適合的OCAP可被執行。"
-Method	A0901	"Control Plan
-管制計劃"	Control Plan	"Product Flow
-產品流程"	"Control plan shall list all process/stage with actual product flow and make sure it is aligned with process flow chart defined in spec.
-管制計劃應列出所有產品實際作業的站點/流程並確保跟文件上定義的流程圖一致。"
-Method	A0902	"Control Plan
-管制計劃"	Control Plan	"Only qualified machine put in control plan
-只有合格的機器放在管制計劃"	"Control plan shall list qualified equipment/machines type.
-管制計劃應列出合格的設備/機器型號。"
-Method	A0903	"Control Plan
-管制計劃"	Control Plan	"Only qualified materials (BOM) put in control plan (for customer specific control plans)
-只有合格的材料清單(BOM) 定義於管制計劃（針對客戶特定管制計劃）"	"Control plan should list qualified BOM per specific customer specific control plan.
-管制計劃應列出客戶特定的合格物料清單。"
-Method	A0904	"Control Plan
-管制計劃"	Control Plan	"Critical Item checked/monitored
-重要項目被確認/監控"	"Critical monitoring items and functional safety/ cybersecurity items need to be defined in the control plan.
-重要監控項目及功能安全與網宇安全項目有被定義在管制計劃。"
-Method	A0905	"Control Plan
-管制計劃"	Control Plan	"Customer requirement
-客戶要求"	"Customer requirement defined in specification and followed.
-客戶的要求有被定義及執行。"
-Method	A0906	"Control Plan
-管制計劃"	Control Plan	"Dedicated control plan
-專用管制計劃"	"Some customers request dedicated control plan for them to be defined in specification.
-客戶專用管制計劃的要求有被定義在規範中。"
-Method	A0907	"Control Plan
-管制計劃"	Control Plan	"Control plan versus actual practice/procedure
-管制計劃與實際的做法/程序"	"Control plan items should match actual practice/procedures. Ex: Sampling size, monitoring method, operation equipment, OCAP...,etc.
-管制計劃內的項目必須符合實際的作法和程序。例如：抽檢頻率、抽檢方式、作業機台、異常處置...等。"
-Method	A0908	"Control Plan
-管制計劃"	Control Plan	"Travel card information
-路單資訊"	"Travel card information should match with control plan and/or spec/document/machine monitor items.
-路單上的資訊需要符合管制計劃/規格/文件/機台確認項目。"
-Method	A0909	"Control Plan
-管制計劃"	Control Plan	"Set-up/WI form
-Set-up/WI 表"	"Set-up/WI form should match SPEC document.
-Set-up/WI應符合規格文檔。"
-Method	A0910	"Control Plan
-管制計劃"	Control Plan	"OCAP
-異常處理流程"	"Shall have OCAP handling procedure for each control items.
-每一個管控項目應有異常處理流程。"
-Method	A0911	"Control Plan
-管制計劃"	Control Plan	"Travel card information
-路單資訊"	"Travel card is indicated as automotive/ functional safety/ cybersecurity.
-車用產品路單上有註明""車用/ 功能安全/ 網宇安全"" 供識別。  "
-Method	A1001	"SPC
-統計製程管控"	SPC	"SPC Control Chart
-SPC 管制圖"	"Use of SPC chart to control the process. Critical monitor items (measureable) need to be controlled by SPC control chart.
-製程有使用統計圖管理。關鍵的監視項目(可測量的) 需要由SPC控制圖控制。"
-Method	A1002	"SPC
-統計製程管控"	SPC	"SPC Chart Criteria
-SPC圖的規格"	"SPC criteria is matching spec or any linked document.
-SPC 規格有符合規範或相關的文件。"
-Method	A1003	"SPC
-統計製程管控"	SPC	"SPC chart, sampling size, frequency
-SPC 圖、抽樣數、頻率"	"SPC chart, Sample size and Frequency is matching control plan and related reference specification.
-SPC 圖/抽樣數/頻率是符合管制計劃及相關的作業規範。"
-Method	A1004	"SPC
-統計製程管控"	SPC	"SPC rules or Out of Control conditions (DCOP)
-SPC的規則 或 超出管制的條件"	"Use of applicable and appropriate SPC rules or out of control conditions for the process.
-針對製程有使用適當的SPC 規則或超出管制的條件。"
-Method	A1005	"SPC
-統計製程管控"	SPC	"SPC Change Record
-SPC 變更紀錄"	"The matter that Modified the machine parameter and process related condition should be note in the administrating paper?
-當修改機台參數及製程相關條件時亦需記載於管制圖上?"
-Method	A1006	"SPC
-統計製程管控"	SPC	"SPC Control Limit
-SPC 管制界限"	"Shall have regular SPC control limit review mechanism.
-應有定期審視SPC 管制界限的機制。"
-Method	A1007	"SPC
-統計製程管控"	SPC	"Process Shift Notice (PSN)
-製程偏移通知"	"Shall issue PSN to specific owners when abnormal monitoring results in process are collected in SPC system and closed on time.
-當SPC系統收集到製程中異常的檢驗資料時須發出PSN給特定人員並且按時結案。"
-Method	A1008	"SPC
-統計製程管控"	SPC	"Quality Deviation Notice (QDN)
-品質異常通知"	"When inspected figure is over regulative limit, the inspector shall issue QDN and place in hold confirm the quality of effected lots.
-當檢驗數值超出規格界限外時檢員SPC系統應發出QDN並停機確認影響批。"
-Method	A1009	"SPC
-統計製程管控"	SPC	"Process Release
-流程釋放"	"For the PSN/QDN cases, the products / equipment can be released after the handling procedure of products / equipment are completed.
-針對PSN/QDN 案件，產品 / 機台必須在產品處理流程 / 機台處理流程完成後才可往下流程。"
-Method	A1010	"SPC
-統計製程管控"	SPC	"Process Capability Index (Cpk)
-製程能力指標"	"Does SPC data shows process is under control and process capability is enough? (Cpk meet goal) 
-統計製程管制數據是否能顯示製程處於穩定狀態/製程能力是否足夠(Cpk達到要求)?   "
-Method	A1011	"SPC
-統計製程管控"	SPC	"Personnel Concept
-人員觀念"	"Whether the operator has implement SPC training and acknowledge the mode of SPC ?
-人員是否受過SPC訓練並了解SPC判讀方式?"
-Method	A1012	"SPC
-統計製程管控"	SPC	"Process Capability Index (Cpk)
-製程能力指標"	"Improvement action is taken once automotive / functional safety/ cybersecurity product Cpk lower than 1.67.
-當車用/ 功能安全/ 網宇安全製程能力未達 1.67 時，有執行改善措施。"
-Method	A1013	"SPC
-統計製程管控"	SPC	"ATV SPC rules 
-車用SPC的規則"	"6 SPC rules (3 sets) are applied for automotive / functional safety/ cybersecurity product SPC.
-車用/ 功能安全/ 網宇安全產品的 SPC 開啟至少6 項SPC規則。"
-Method	A1101	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Non-conforming handling
-不合格品處理"	"Follow OCAP Flow or nonconformance handling procedure in handling rejects ( Hold notice , Corrective action...).reject product need to follow scrap procedure.
-當不良品產出時，要依照OCAP 之流程或依不合格品處置措施作業( Hold notice , 矯正措施..)。報廢品須遵從報廢程序進行處理。"
-Method	A1102	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Non-conforming handling
-不合格品處理"	"Accepted products / rejects shall be indicated and be in proper order.
-良品/不良品要依規定擺放及標示。"
-Method	A1103	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Hold Lot Handling
-停貨處置"	"Shall have auto hold lot system to prevent the product release to next process.
-應有自動停貨系統避免產品跑往下流程。"
-Method	A1104	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Hold Lot Handling
-停貨處置"	"Is there has define on time to deal with the product that have been held.
-對於被hold住的產品 , 有沒有定義處理上之時效性？"
-Method	A1105	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Customer Information
-通知客戶"	"Is there have a flow chart to inform customer when found the failure in product line? If functional safety product is impacted, needs to inform functional safety manager in the beginning of case happen.
-當不合格品產生時是否有一套流程通知客戶？若影響範圍內包含功能安全產品，則需在事件發生時通知安全經理。"
-Method	A1106	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Customer Waiver
-客戶棄權"	"When release the hold product , there must have the solution after investigate or accepted by customer.
-是不是release的所有產品，皆是在分析調查後得到解決方法或是客戶同意才允許?"
-Method	A1107	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Material Review Board Procedure
-特別批件會簽程序"	"Is there a MRB procedure to review the disposition of nonconforming material? (e.g. ""use as is"", RTV, scrap, rework)
-是否有MRB流程來評審不良材料的處理？（例如條件使用、RTV，報廢、重工）"
-Method	A1108	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Material Review Board Procedure
-特別批件會簽程序"	"Is the responsibility and authority to review/approve disposition of nonconforming materials defined? (e.g. MRB roster)
-是否規定了不良材料處置的審核/批准職責和許可權?（例如MRB成員名單）"
-Method	A1109	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Material Review Board Procedure
-特別批件會簽程序"	"For MRB material, is there a requirement to issue a corrective action? Are all necessary details included in the Corrective Action Request? (P/N, lot #, inspection date, lot size, sample size, reject qty, etc.)
-對於MRB材料，是否執行改善行動要求？改善行動要求是否包含了所有的必要細節（編碼、批號，檢驗日期、批數量、樣本大小、拒收數量等）"
-Method	A1110	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Corrective Action
-矯正措施"	"Need action for impact lots and material.
-針對受影響批/材料需要有改善。"
-Method	A1111	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Corrective Action
-矯正措施"	"Is there a system to track status of corrective action requests?
-是否有制度跟蹤糾正措施執行狀況？"
-Method	A1112	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Corrective Action
-矯正措施"	"Is action taken when progress/implementation of improvement actions is not satisfactory?
-當改善行動的執行和進程不能滿足要求時，是否採取進一步的行動？"
-Method	A1113	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"Is there have the reword SOP ?
-是否有重工作業之SOP?"
-Method	A1114	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"Rework instructions shall be accessible and utilized by the appropriate personnel in their work areas.
-重工指導書是否能在工作場所容易被相關的人員取得並執行呢?"
-Method	A1115	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"The personnel that to rework product shall be have been  trained / know the style of rework.
-是不是所有從事重工相關之作業人員，有接受訓練且都知道重工方式?"
-Method	A1116	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"Repaired and /or reworked product shall be reinspected in accordance with the quality plan(control plan) and /or documented procedure.
-修理與/或重工加產品,是否依照品管計劃與/或書面程序重新加以檢驗?"
-Method	A1117	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"Shall have availability records of rework.
-應有重工的有效紀錄。"
-Method	A1118	"Non-conforming handling
-不合格品處理"	Non-conforming handling	"Rework
-重工"	"Automotive / functional safety/ cybersecurity products are not allow rework and should follow customer rework requirement.
-車用/ 功能安全產品/ 網宇安全禁止重工並且不得違反客戶重工需求。"
-Method	A1201	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Customer complaints
-客戶抱怨"	"If you have a suit of procedure of customer return material ?
-是否有一套客退品處理流程?"
-Method	A1202	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Customer complaints
-客戶抱怨"	"Committed improvement actions/corrective actions should be implemented/followed.
-客戶案件的改善行動應確實執行。"
-Method	A1203	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Customer complaints
-客戶抱怨"	"Does customer complain and actions of preventive can feedback to system for implement? Ex: PFMEA.
-客訴案件之異常與矯正預防措施是否能反饋置系統中實施。如PFMEA 。"
-Method	A1204	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Preventive Action
-預防措施"	"Is there a preventive action for recurrence?
-是否有預防行動避免再發?"
-Method	A1205	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Preventive Action
-預防措施"	"If use the appropriate extent fault preventing method in the course of rectification and prevention ?
-是否於矯正及預防措施過程中，使用適當程度的錯誤防止方法?"
-Method	A1206	"Customer complaints /  Quality issues
-客戶抱怨 / 品質異常"	Customer complaints, Quality issues	"Action fan out. 
-措施展開"	"Action of quality issue is fan out to related plants to prevent recurrence.
-客戶抱怨的預防措施有被展開到相關廠別執行，避免再發。"
-Method	A1301	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Shall have to define the severity, occurrence, detection ranking of FMEA.
-應有規範去定義FMEA中的嚴重度、發生率、偵出度等級。"
-Method	A1302	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Need to update FMEA when quality issue completed. If the update FMEA is belong to functional safety item, needs to ask functional safety manager to review before modification.
-針對客訴的案件，需更新相關的FMEA。若更新之FMEA屬於功能安全項目，則需在變更前要求功能安全經理審查。"
-Method	A1303	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Shall have regular review effectiveness of FMEA corrective action. For the items belong to functional safety, functional safety manager should in the review loop.
-應有定期於審視FMEA的有效性。若有屬於功能安全項目，則車用安全經理必須在審查人員中。"
-Method	A1304	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Shall have regular review mechanism and update FMEA action and ranking.
-應有定期去更新FMEA的改善行動及內容。"
-Method	A1305	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"FMEA shall build the linkage to control plan by serverity ranking.
-FMEA的嚴重性等級應與Control Plan 連結。"
-Method	A1306	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Improvement action is taken for top 3 (general) or top 5 (automotive / functional safety/ cybersecurity) RPN items, even all RPN already meet criteria (general: 100;  automotive / functional safety/ cybersecurity: 84)
-即使所有RPN 值都已經低於要求 (一般：100；車用/功能安全/ 網宇安全)：84)，仍需要針對前3 (一般) 或前5 (車用/功能安全/ 網宇安全) 高RPN 的項目執行持續改善措施。"
-Method	A1307	"FMEA
-失敗效應分析"	FMEA	"FMEA
-失敗效應分析"	"Is the current process control (prevention / detection) and action taken from FMEA be implemented?
-FMEA 內的目前製程的控制(預防/偵出)及已實施的改善行動是否有落實被執行？"
-Method	A1401	"Document Control
-文件管控"	Document Control	"Code Number Control
-編碼管控"	"All documentation of work-in-process shall be with code number to be controlled.
-生產線上之所有作業文件要有code number管制。"
-Method	A1402	"Document Control
-文件管控"	Document Control	"Revision Control
-版本管控"	"All documentation of work-in-process shall be the latest edition.
-生產線上之所有作業文件要為最新版次。"
-Method	A1403	"Document Control
-文件管控"	Document Control	"Revision Control
-版本管控"	"Are manufacturing prints under control?
-工程圖面是否亦受管控 ?"
-Method	A1404	"Document Control
-文件管控"	Document Control	"Revision Control
-版本管控"	"Is computer software under controlled?
-電腦軟件是否亦受控?"
-Method	A1405	"Document Control
-文件管控"	Document Control	"Revision Control
-版本管控"	"How to control the revision of testing?
-如何管控測試版本?"
-Method	A1406	"Document Control
-文件管控"	Document Control	"Record Control
-紀錄管控"	"All record modification shall be with signature and date.
-所有記錄的修改要有簽名及押日期。"
-Method	A1407	"Document Control
-文件管控"	Document Control	"Data Filing and Retrieval
-資料保存與取回"	"Operation records shall be preserved periodically.
-作業記錄要依規定定期保存。"
-Method	A1408	"Document Control
-文件管控"	Document Control	"External Document
-外來文件"	"Are documents of external original within the range of document control? 
-外來的原始的文件是否列入文件管制?"
-Method	A1409	"Document Control
-文件管控"	Document Control	"External Document
-外來文件"	"Are documents of external original properly maintained?
-外來文件是否被妥善之保管?"
-Method	A1410	"Document Control
-文件管控"	Document Control	"External Document
-外來文件"	"Does customer documents transfer to a interior instruction?
-客戶文件是否適切地轉成內部規範?"
-Method	A1501	"Change Control
-變更管控"	Change Control	"Change Control
-變更管控"	"Is there procedure established for informing relevant personnel of engineering changes? If the functional safety product is impacted in the change , whether functional safety manager is informed.
-是否有一套通知流程得知工程變更及知會相關單位? 若功能安全產品在變更範圍內，是否通知安全經理?"
-Method	A1502	"Change Control
-變更管控"	Change Control	"Change Control
-變更管控"	"Are there tracking actions taken for the situation after engineering changes applied?
-是否有追蹤工程變更導入狀況?"
-Method	A1503	"Change Control
-變更管控"	Change Control	"Change Control
-變更管控"	"Does engineering change customer related items has notify to customer?
-工程變更與客戶相關項目是否有通知客戶?"
-Method	A1504	"Change Control
-變更管控"	Change Control	"Change Control
-變更管控"	"Is there has enough data and record to prove change is effectively?
-工程變更實施前是否有足夠之實驗數據與報告佐證? "
-Method	A1505	"Change Control
-變更管控"	Change Control	"Change Control
-變更管控"	"Automotive / functional safety/ cybersecurity product change control sahll follow customer special requirement and automotive change control guideline.
-車用/ 功能安全/ 網宇安全產品的變更管制應依照客戶特殊需求及車用變更管制指導原則去執行。"
-Method	A1601	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Self check records
-自主檢查紀錄"	"Self check records, TCMs, eTCMs, record sheets, monitor sheets, check sheets should be completely filled-up and eligible.
-自主檢查紀錄/TCM/eTCM/紀錄表單/監控紀錄/確認紀錄表需完整和合格的。"
-Method	A1602	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Self check records
-自主檢查紀錄"	"The monitoring results of process parameters shall be recorded and can be traced.
-製程參數的確認結果應被記錄且可被追朔。"
-Method	A1603	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Work instructions
-工作指導書"	"The SOP steps of production process shall follow instructions and standard.
-製程SOP動作需遵循指示規範。"
-Method	A1604	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Work instructions
-工作指導書"	"Following the indication of travel card/ SPEC to set up the parameter of operating machine.
-作業機台的參數設定須依路單/SPEC指定設定。"
-Method	A1605	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Transfer procedure between stages
-站點間的產品運送"	"Doing product transportation shall follow operation instruction handling work-in-process devices.
-產品搬運時需遵循生產線上產品搬運之作業規範。"
-Method	A1606	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Lead-free/non lead-free control
-有鉛無鉛的管控"	"Proper segregation, identification for lead-free and non lead-free material.
-適當區分、鑑別有鉛/無鉛的材料"
-Method	A1607	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Product storage Control 
-產品儲存管理"	"Follow required storage conditions and location.
-遵照規定的儲存條件及位置"
-Method	A1608	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Mixing control
-混貨"	"Following the regulations to put travel card and products together.
-路單必須依規定與產品置放一起。"
-Method	A1609	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Mixing control
-混貨"	"One customer sub-lot is handled on working table in one time.
-同一時間內只能在工作桌上作業一個客戶的產品。"
-Method	A1610	SOP documentation/implementation 作業指導書 規範定義/執行	SOP documentation/implementation	"Customer requirement
-客戶要求"	"Customer special requirement is defined in specification and followed.
-客戶的特殊要求有被定義在內部文件及執行。"
-Method	A1701	"Automation
-自動化"	Automation	"Program/Recipe identification
-程式儲存"	"Auto recipe download & auto mating with system.
-自動下載程式並與系統回存比對。"
-Method	A1702	"Automation
-自動化"	Automation	"Program/Recipe identification
-程式儲存"	"The ENGG and mass production program/ recipe can be easy identified to prevent missing usage.
-工程和量產的程式容易識別以防使用錯誤。"
-Method	A1703	"Automation
-自動化"	Automation	"Program/Recipe Name
-程式名稱"	"Following the indication of travel card/ SPEC to set up the parameter of operating machine.
-作業機台的參數設定須依路單/SPEC指示設定。"
-Method	A1704	"Automation
-自動化"	Automation	"Program/Recipe Traceability
-程式的追溯"	"The monitoring results of process parameters shall be recorded and can be traced.
-製程參數的確認結果應被記錄且可被追朔。"
-Method	A1705	"Automation
-自動化"	Automation	"Program/Recipe Revision
-程式的版本"	"Shall have recipe change approval mechanism and revision control history.
-程式的變更應有簽核機制及版本管控紀錄。"
-Method	A1706	"Automation
-自動化"	Automation	"Direct/Indirect Material
-直接/間接材料"	"1. Auto check if the direct material or indirect material is correct or not (by barcode system)
-2. Auto alarm and hold in system if the direct/ indirect material over lifetime.
-3. Material thawing time and stabilizing time can be controlled by system.
-1. 自動確認直接材料或間接的資料是否正確。（通過條碼系統）
-2.若直接/間接材料超出使用壽命，系統會自動警報並停止作業。
-3.材料回施和回溫有系統控制。"
-Method	A1707	"Automation
-自動化"	Automation	"Product  transformation
-產品的移轉"	"To transfer the units by automated equipment (ex. sky cart, auto-exchanging cassette equipment) or tooling (ex. Vacuum wand, manual exchanging cassette equipment) to avoid manual handling.
-PS. For automated plant, the sky cart transformation in excluding receiving to de-box step , packing step and QA inspection step.
-經由自動化設備(如天車，自動換盒機)或工具(如真空吸筆, 手動換盒機)進行產品移轉，避免人體直接接觸產品。
-註: 自動化工廠除了進料至換盒站，包裝站與QA檢驗站點外，均應使用天車運送產品。"
-Method	A1708	"Automation
-自動化"	Automation	"Lot Move In/Out
-產品過帳"	"1. Auto lot move-in/move-out (barcode system)
-1. 使用條碼系統自動過帳
-2. Auto OP check-in for lot move-in/out (for automatic plant)
-2. 自動OP check-in 系統"
-Method	A1709	"Automation
-自動化"	Automation	"Data collection
-資料蒐集"	"Engineering data is auto upload to EDC system.
-(for automatic plant)
-資料自動上傳至資料管理/生產管理系統"
-Method	A1710	"Automation
-自動化"	Automation	"Lot disposition
-派工"	"Product lot should be deposited by system.
-(for automatic plant)
-系統自動派工產品"
-Method	A1711	"Automation
-自動化"	Automation	"SPC data upload 
-SPC資料上傳"	"SPC data should be auto uploaded to SPC system (no manual key in)
-(for automatic plant)
-SPC資料自動上傳至SPC系統 (非手動輸入)"
-Environment	A1801	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"Shall have environmental methodology and abnormal handling defined in specification. (Ex. noise, temperature, humidity, lighting, DI water, air pressure and etc. )
-環境管制方法及異常處置需被定義在規範中。 (例如:噪音,溫度,濕度,照度,D.I 水,氣壓等等…)"
-Environment	A1802	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"Shall install real time system to detect temperature, humidity and particle.
-針對溫度/溼度及落塵需安裝即時監控系統。"
-Environment	A1803	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"There is auto alarm system be used when out of control.
-當超出管制限制會自動警示。"
-Environment	A1804	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"Monitor personnel shall comply with specification to monitor environmental control items. (Ex: noise, temperature, humidity, lighting, water, air pressure and etc. )
-確認者需根據規範監察環境管制項目。 (例如：噪音,溫度,濕度,照度,水,氣壓等等…)"
-Environment	A1805	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"The monitoring results of  environment shall be records.(Ex. noise, temperature, humidity, lighting, water, air pressure and etc. )
-環境的監控須有確實執行之記錄。(例如:噪音,溫度,濕度,照度,水,氣壓等等…)"
-Environment	A1806	"Environment Monitor
-環境監控"	Environment Monitor	"Environment Monitor
-環境監測"	"Monitor personnel shall issue abnormal notice to notify FAC and MFG when monitoring results are unusual.
-當監控結果異常時, 監控者須發出異常單通知廠務及製造部。"
-Environment	A1901	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"Shall have clean room methodology and abnormal handling defined in specification.
-無塵室的管制方法需被定義在規範中。"
-Environment	A1902	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"Staff shall comply the clean room request in gowning area, air shower room and working field. (Ex. Wearing, air shower, AB doors, to walk and etc.)
-人員於更衣室, 吹氣室及作業現場須遵守無塵室規定。(例如:穿著, 吹氣,AB門, 走路等等...)"
-Environment	A1903	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"Machine, parts, material and etc. be moved into the air shower room and working field shall be complied the specifications.
-設備,零件及材料等等…被搬進吹氣室及作業現場須符合無塵室規定。"
-Environment	A1904	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"The forbidden articles shall not be used in the clean room, EPA, and working area. (Ex. Plastic chairs, ordinary paper, personal articles, any food and etc.)
-禁品不可被使用在無塵室, EPA 或工作現埸。(例如: 塑膠椅,一般紙張,私人物品,任何食品等等...)"
-Environment	A1905	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"If the non-essential article be used in clean room or EPA shall be complied protecting method. (Ex: suitable separation, suitable distance, packing and etc..)
-如非必要品被使用於無塵室或靜電防護區，須符合防護方法。(例如:適當的隔離,包裝,適當的距離)"
-Environment	A1906	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"Shall have instruction for dress regulation in the gowning room.
-更衣室有服裝穿著規定標示。"
-Environment	A1907	"Clean Room Management
-無塵室管理"	Clean Room Management	"Clean Room Management
-無塵室管理"	"Staff shall clean public area or working area periodically based on specifications.
-人員須遵守規定定期清潔公共區域或作業區。"
-Environment	A2001	5S	5S	5S	"Useful articles and useless articles shall be managed and be complied arrangement method. (Ex. clearly distinguish useful or un-useful articles, Scrap the useless articles)
-要與不要的物品須被管理，符合整理的方法。(例如:區分要與不要的東西,把不要的東西丟掉)"
-Environment	A2002	5S	5S	5S	"Location, placed area or others be identified easily shall complied the organization method. (Ex. simplest way to position everything, easily understand location, easy taking, sequentially display and etc.)
-場所、放置區或其他區域須易於被識別，符合整頓的方法。(例如：簡單的方法把物品歸位、位置易被了解、易於取得、依序擺放等等…)"
-Environment	A2003	5S	5S	5S	"Environment shall be swept regularly complied sweeping method. (Ex. regular clean, no trash, no dirt, no foreign matter, very clean and etc.)
-環境須定期被清掃，符合清掃的方法。(例如:定期清潔, 無垃圾, 無異物,十分整潔)"
-Environment	A2004	5S	5S	5S	"Dirt and mess are prohibited in space.(Including inside and outside of machine, the N2 cabinets, computers, working tables, ionizers, and etc.)
-工作區域範圍中(包括機台裡外,氮氣櫃,電腦,工作桌,離子風扇...等)不可有零亂和髒污。"
-Environment	A2005	5S	5S	5S	"The instrument shall be placed in order without mess.
-工具要依規定擺放且不可雜亂。"
-Environment	A2006	5S	5S	5S	"Documentation shall be in proper order.
-文件資料依規定擺放整齊(Ex：:工作桌上的文件等等...)"
-Environment	A2007	5S	5S	5S	"Shall have appropriate indicators at working field.
-工作區域要有適當的標示。"
-Environment	A2101	"ESD
-靜電防護"	ESD	"ESD Control Procedure
-靜電管制流程"	"Shall have E.S.D control methodology defined in specification.
-靜電放電管制方法需要被定義在規範中。"
-Environment	A2102	"ESD
-靜電防護"	ESD	"Protected Area
-防護區域"	"ESD check on tables, pushcarts, chairs, floors, ionizers, packing material, CPG, etc.
-工作桌/台車/椅子/地板/離子風扇/WIP 架/包材/共通接地點等等...有被確認靜電。"
-Environment	A2103	"ESD
-靜電防護"	ESD	"Protected Area
-防護區域"	"Staff shall comply the E.S.D standard. (Ex. Wearing, to walk and etc.)
-人員須遵守靜電防護規定。(例如:穿著, 走路等等...)"
-Environment	A2104	"ESD
-靜電防護"	ESD	"Protected Area
-防護區域"	"There are suitable identification with ESD. (Ex. ESD Susceptibility Symbol, ESD Protective Symbol, Common point Ground Symbol and etc.)
-有適當的靜電防護標示。(例如:ESD 敏感性符號, 靜電防護符號,共通接地符號等等…)"
-Environment	A2105	"ESD
-靜電防護"	ESD	"Human body ESD control
-人員靜電管制"	"Make sure to execute the measurement of ESD while entering the EPA working field.
-人員要進入EPA工作場所時，確實執行ESD的量測。"
-Environment	A2106	"ESD
-靜電防護"	ESD	"Human body ESD control
-人員靜電管制"	"The operators are assured to be ESD. (Ex: ESD gloves or fingers cots, ESD hand bracelet, and etc.)
-人員作業時確實達到ESD的防護(Ex:靜電手套或手指套或靜電手環...等)"
-Environment	A2107	"ESD
-靜電防護"	ESD	"ESD Check Control
-ESD 確認管制"	"Machine capability meet ESD requirements.
-機台能力符合靜電管控的需求。"
-Environment	A2108	"ESD
-靜電防護"	ESD	"ESD Check Control
-ESD 確認管制"	"Ionizer shall work properly. (The ESD decay time and balance voltage shall meet ESD control requirement)
-離子風扇化設備須正常運作。(靜電消散時間及平衡電壓需符合ESD管制要求)"
-Environment	A2109	"ESD
-靜電防護"	ESD	"ESD Record
-ESD紀錄"	"Be sure to execute periodical ESD inspection records. (Owner please do ESD measurement practically.)
-定期ESD抽檢的記錄確實執行。(請負責人員，實際操作 ESD的量測)"
-Environment	A2201	GP	GP	GP	"Hazardous substance free and hazardous substance product must have individual working area.
-無有害物質的工作區必須與有害物質的工作區分開。"
-Environment	A2202	GP	GP	GP	"Hazardous substance products WIP area, cart and machine need to indicate ""category of hazardous substance""(Green&Non-green label ).
-有害物質的產品WIP區、產品運貨台車及機台需標示""有害物質類別""(Green&Non-green的標示)。"
-Environment	A2203	GP	GP	GP	"Only allow one product schedule on working table at the same time.
-工作桌上只允許同時放置單一批產品。"
-Environment	A2204	GP	GP	GP	"All finished product must move to the finished product area.
-完成品必須放在的成品區。"
-Environment	A2205	GP	GP	GP	"The product traveler card have to indicate uses what kind of material and remark Green/Non-green product.
-產品路單上須標明使用的是何種材料並且註明為綠色或非綠色產品。"
-Environment	A2206	GP	GP	GP	"The rework sheet of hazardous substance products need to indicate ""category of hazardous substance""
-有害物質產品重工單需註明""有害物質類別""。"
-Environment	A2207	GP	GP	GP	"All material need have GP barcode label to distinguished from outer box to minimum packing, and Green/Non-green type and material P/N information on system should coordinated with real GP barcode label. (Green material is used white color label , Non-green material is used pink color label)
-確認所有材料的外箱一直到最小包裝皆有GP條碼標籤識別, 且系統Green/Non-green類別以及P/N是否與實際標籤相對應. (Green為白色標籤, Non-green為粉紅色標籤)"
-Environment	A2208	GP	GP	GP	"Must check the material information once again the material changed during an operation.
-作業過程中?換材料後，必須再次確認材料的資訊。"
-Environment	A2209	GP	GP	GP	"Must ensure there is no any one remain in the material tank, before changes material type.
-?換材料類別前，必須確保機台材料載具內無任何殘?的材料。"
-Environment	A2210	GP	GP	GP	"The material with different composition have to pack with different box.
-不同成分的材料須分開盒裝。"
-Environment	A2211	GP	GP	GP	"Forbid to change the material container arbitrarily.
-禁止任意?換材料的盛裝容器。"
-Environment	A2212	GP	GP	GP	"The removed material have to centralized put into the recycle bin.
-移除的材料必須集中在回收筒內。"
-Environment	A2213	GP	GP	GP	"Forbid to use the material which label was lost or unrecognizable.
-?得使用遺失標籤或無法辨識的材料。"
-Environment	A2214	GP	GP	GP	"Engineering experiments material have to post the ""experiment material usage record card"" on the container.
-工程實驗用的材料，必須在容器外部貼上""實驗用材料記?卡""。"
-Environment	A2215	GP	GP	GP	"Have to note the material composition card on the machine that is using currently.
-機台上必須掛上目前正在使用的材料成分指示牌。"
-Environment	A2216	GP	GP	GP	"Check the related tools, parts and gauges are marked with ""GREEN"" and ""NON-GREEN"".
-確認所使用的模具、零件及治具是否有標示""綠色""及""非綠色""。"
-Environment	A2217	GP	GP	GP	"Hazardous substance free tools, parts and gauges cannot put together with hazardous substance tools, parts and gauges.
-無有害物質的模具、零件及治具不能與有害物質的模具、零件及治具放在一起。"
-Environment	A2218	GP	GP	GP	"Check the tools, parts and gauges has the clean record, and there are individual cleaning tools for hazardous substance free and hazardous substance tools, parts and gauges.
-確認是否有模具、零件及治具的清潔紀錄，以及無有害物質/有害物質模具、零件及治具是否有各別的清潔工具。"
-Environment	A2219	GP	GP	GP	"XRF record meet the SPEC defined for incoming &Shipping inspection of XRF sampling plan/frequency/test item/criteria. (Including incoming & shipping inspection, after Non-green change to Green & Long-term stock material)
-確認XRF的抽樣計畫/檢測頻率/檢測項目/規格是否依照SPEC定義執行,並且有相對應的實際表單/紀錄(1RT/當日有進貨,測試7項元素)。(含進料&出貨檢驗, 製程Green/Non-green轉換後和長期庫存材料)"
-Environment	A2220	GP	GP	GP	"For ECO-Partner, XRF test sample need storage one month.(Except Bumping wafer)
-針對ECO-Partner, XRF 檢測樣品是否保留一個月(Bumping廠wafer產品除外)"
-Environment	A2221	GP	GP	GP	"XRF record need maintain.
-XRF 檢測紀錄是否保存"
-Environment	A2222	GP	GP	GP	"XRF machine need do calibration every years(calibration label), and do self-calibration weekly, need have related result report.
-XRF儀器是否每年執行校正(校正標籤), 每周執行校驗, 且有表單紀錄"
-Environment	A2223	GP	GP	GP	"After doing XRF inspection need separate/labeling XRF fail material/product area.
-執行XRF後, 需獨立區分且標示XRF fail 區"
-Environment	A2224	GP	GP	GP	"After XRF inspection, the XRF pass / fail of material/product need be distinguished. (ex.XRF Pass/Fail stamp or label)
-XRF檢驗後, 材料/產品上需可被辨識XRF pass / fail (ex.XRF Pass/Fail章或標籤)"
-Environment	A2225	GP	GP	GP	"When XRF fail, need implemented based on GP non-conforming handling procedure.
-XRF 檢驗fail 時，是否依照GP不合格品處置流程執行"
-Environment	A2226	GP	GP	GP	"OP need pass XRF training and certification.
-作業人員是否有適當之XRF相關訓練且有資格認證"
-Environment	A2227	GP	GP	GP	"Establish usage procedures for long-term stock, and separate/labeling G/N-G long-term stock area.
-是否建立長期庫存的管理, 並清楚區分且標示Green & Non-green 長期庫存區"
-Environment	A2228	GP	GP	GP	"Scrap area need separate and labeling Green/Non-green.
-報廢品放置區是否有Green/Non-green區分且標示"
-Environment	A2229	GP	GP	GP	"When separate material, only allow one material lot on working table at the same time.
-分料或拆料時必須一次處理單一批產品"
-Environment	A2230	GP	GP	GP	"DSC Storage area need separate and label Non-green.
-Non-green產品庫區是否區分且標示"
-Environment	A2231	GP	GP	GP	"Need have GP comply label on products which based on customer request.
-產品上是否依客戶要求有GP相關符合性標籤"
-Environment	A2232	GP	GP	GP	"Before operating, need confirm material GP information of material packing meet system GP information data.
-作業前須確認材料包裝上的資料與系統符合"
-Environment	A2301	"Safety
-安全"	Safety	Safety	"SDS documentation shall be placed on the spot regulatively.
-現場SDS文件需 依相關規定擺放於現場。"
-Environment	A2302	"Safety
-安全"	Safety	Safety	"Chemicals shall be labelled and with chemical  industrial safety label. EX:O/G.FVI.
-化學物品需清楚標示名稱及貼示化學工安標籤。"
-Environment	A2303	"Safety
-安全"	Safety	Safety	"Toxic chemicals shall be contained. (Ex: Place on leakproof tank.)
-有毒化學物品需有依規定擺放(EX:擺放於防洩槽上)。"
-Environment	A2304	"Safety
-安全"	Safety	Safety	"Check for the presence of safety devices. (Ex: Safety eyeglasses/gas mask/safety helmet/protection clothes/safety gloves, and etc.)
-現場是否有依規定擺放防護器具(眼鏡/防毒面具/安全帽/圍袑(防護衣)/手套等等...)。"
-Environment	A2305	"Safety
-安全"	Safety	Safety	"Liquid chemical containers shall not leak. 
-液態化學物品不可有外溢。"
-Environment	A2306	"Safety
-安全"	Safety	Safety	"Shall follow the operation instructions executing monitor records.
-須依作業指示執行監控記錄。"
-Environment	A2307	"Safety
-安全"	Safety	Safety	"Shall not have any water stain or chemicals.
-地面不可有水漬或化學藥劑。"
-Environment	A2308	"Safety
-安全"	Safety	Safety	"Shall not have breakage, shabbiness or unevenness on ESD conductive floors, and ceillings.
-地面之導電地皮及天花板不可有損毀,破洞或趐起/不平。"
-Other	A2401	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"All operators must use their own Note ID/AD account to login to the related system/computer/equipment.
-作業員在操作任一機台與登錄任一電腦時，必須使用個人帳號(工號/AD帳號)進行登錄。"
-Other	A2402	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"All dedicated security ties and seal labels should be stored in a locked cabinet.
-安全產品專用之束帶、封存貼紙，應存放在上鎖儲存櫃中。"
-Other	A2403	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"All dedicated security ties and seal labels should be applied in consecutive number and recorded all applications.
-安全產品專用之束帶、封存貼紙，須連號取用及有領用紀錄。"
-Other	A2404	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"Regarding to all dedicated security ties and seal labels , A and B shift MFG leaders should hand over , confirm and record all endorsement quantity per shift.
-安全產品專用之束帶、封存貼紙需由每班幹部進行交接，A &B班製造部幹部需進行數量確認並填寫交接紀錄表。"
-Other	A2405	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"Regarding to the controlled key, relative person/substitute should responsibility for the key safekeeping. It is forbidden to let unauthorized person to take it easily. (e.g. warehouse/ plant area / storage cabinet / equipment and other special controlled area... )
-針對管制的鑰匙，需由相關人員或代理人妥善保管，禁止他人易於取得。(例如:庫房/廠區/儲存櫃/設備或其他特殊管制區域等等...)"
-Other	A2406	"Security
-安全產品"	Security	"Security
-(For B2,B2B only)"	"This item is only for B2, B2B areas: The mask storage box of security product should be identified in label and stored in a locked cabinet.
-此項僅針對B2、B2B廠區：安全產品之光罩儲存盒須標示且存放於上鎖的光罩架。"
-Other	A2407	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"All handling-security-product operators should pass the security certification.
-安全產品之作業人員須通過資格卡認證。"
-Other	A2408	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"The storage box of security broken wafer should be labeled with seal which must not be in broken condition , and must be marked with two ASE employee's signature & seal date.This storage box of security broken wafer should be stored in locked  cabinet.
-安全產品破片儲存盒應貼上封存貼紙，封存貼紙不可破損，需有 2 名ASE員工簽名及填寫封存日期，存放須放置於上鎖管制櫃中。"
-Other	A2409	"Security
-安全產品"	Security	"Security
-(For B9 de-frame only)"	"This item is only for de-frame stage in B9 line.
-1. The same schedule of security product should be consolidated with the following data/ information/ object -  reject dies, Engineering test dies, ink wafer dies and wafer map
-2. Reject dies and Engineering test dies should be put in a zipper bag with unbroken seal which must be recorded the quantity , two ASE employee's signature and seal date. It is forbidden to use a broken seal on a zipper bag.
-此項僅針對B9廠區下框站：1. 同一批schedule的安全產品需要有Reject Die、實驗dies與Ink wafer die、MAP圖；2. Reject Die、實驗dies 需以夾鏈袋封存並貼上封存貼紙，封存貼紙需有數量紀錄、2名ASE員工簽名"
-Other	A2410	"Security
-安全產品"	Security	"Security
-(For B9 PnP only)"	"This item is only for PnP stage in B9 line: The quantity of reject dies and Engineering test dies should be  recorded.
-此項僅針對B9廠區PnP站：Reject Die、實驗dies 需有數量清點紀錄。"
-Other	A2411	"Security
-安全產品"	Security	"Security
-(For B2,B2B,B9,T2-K7 13F only)"	"The travel card of security product should be printed with ""Soteria"" mark.
-安全產品路單上須顯示Soteria字樣。"
-Other	A2501	ULA	ULA	ULA	"ULA dedicated line action- In-Line-Stock 
-ULA專線Action -In-Line-Stock (線邊倉)
-(Working Table/Vacuum Pen/ Refrigerator/ Operator SOP)
-(工作桌/ 真空吸筆/ 冰箱/ 作業SOP)"
-Other	A2502	ULA	ULA	ULA	"ULA dedicated line action- Wafer Storage
-ULA專線Action - Wafer Storage (晶片存放)
-(N2 Cabinet) (氮氣櫃)"
-Other	A2503	ULA	ULA	ULA	"ULA dedicated line action- Substrate Arrangement
-ULA專線Action - Substrate Arrangement (基板擺放)
-(Machine/Working Table/Tray/Label/Magazine/Carrier Boat/
-Operator SOP)
-(機台/ 工作桌/ Tray盤/ 標籤/ 料盒/ 乘載盤/作業SOP)"
-Other	A2504	ULA	ULA	ULA	"ULA dedicated line action- Substrate Baking
-ULA專線Action - Substrate Baking (基板烘烤)
-(Machine/Magazine/Tray/Operator SOP)
-(機台/ 料盒/ Tray盤/ 作業SOP)"
-Other	A2505	ULA	ULA	ULA	"ULA dedicated line action- Solder Paste Printing
-ULA專線Action - Solder Paste Printing (錫膏印刷)
-(Solder Paste Storage & Thawing/Machine/Tooling/Operator SOP)
-(錫膏儲放& 回溫區/ 機台/ 治具/ 作業SOP)"
-Other	A2506	ULA	ULA	ULA	"ULA dedicated line action- Capacitor Mount
-ULA專線Action - Capacitor Mount (上電容電阻)
-(Machine/Nozzle/Operator SOP)
-(機台/ 吸嘴/ 作業SOP)"
-Other	A2507	ULA	ULA	ULA	"ULA dedicated line action- Flipchip Bond
-ULA專線Action - Flipchip Bond
-(Machine/Nozzle/Flux Plate/Operator SOP)
-(機台/ 吸嘴/ Flux平台/ 作業SOP)"
-Other	A2508	ULA	ULA	ULA	"ULA dedicated line action- Flipchip Bond
-ULA專線Action - Flipchip Reflow
-(Machine/Nozzle/Flux Plate/Operator SOP)
-(機台/ 吸嘴/ Flux平台/ 作業SOP)"
-Other	A2509	ULA	ULA	ULA	"ULA dedicated line action- Pre-UF Bake
-ULA專線Action - Pre-UF Bake
-(Machine/Operator SOP)
-(機台/ 作業SOP)"
-Other	A2510	ULA	ULA	ULA	"ULA dedicated Line Action- Plasma
-ULA專線Action - Plasma
-(Machine/Operator SOP)
-(機台/ 作業SOP)"
-Other	A2511	ULA	ULA	ULA	"ULA dedicated Line Action- UF
-ULA專線Action - UF
-(Machine/Tooling/Operator SOP)
-(機台/ 治具/ 作業SOP)"
-Other	A2512	ULA	ULA	ULA	"ULA dedicated line action- UF Cure
-ULA專線Action - UF Cure
-(Machine/Operator SOP)
-(機台/ 作業SOP)"
-Other	A2513	ULA	ULA	ULA	"ULA dedicated line action- PM
-ULA 專線Action- 保養
-(PM Tooling/ PM Record/ Label/ PM SOP)
-(PM工具/ PM記錄/ 標籤/ PM SOP)"
-Other	A2514	ULA	ULA	ULA	"ULA dedicated Line Action- Documentation
-ULA專線Action - Documentation
-(Traveller/Working Instruction/Monitor Sheet)
-(路單/ 工作指導書/ 記錄表單)"
-Machine	A2601	"Automotive machine management
-車用機台管理"	Automotive Machine Management	"Machine identification
-機台識別"	"Automotive / functional safety/ cybersecurity machine is identified by automotive label.
-車用/ 功能安全/ 網宇安全機台上貼有車用專機標籤。"
-Machine	A2602	"Automotive machine management
-車用機台管理"	Automotive Machine Management	"Machine control
-機台管控"	"Automotive / functional safety/ cybersecurity machine is control by MES system, only automotive machine can product automotive / functional safety/ cybersecurity product.
-車用/ 功能安全/ 網宇安全專機有用系統管控，只有車用專機能生產車用/ 功能安全/ 網宇安全產品。"
-Machine	A2603	"Automotive machine management
-車用機台管理"	Automotive Machine Management	"Machine performance
-機台等級"	"Automotive / functional safety/ cybersecurity machine performance is periodically reviewed and remove from automotive machine list once violate the equipment performance level definition.
-定期審查車用/ 功能安全/ 網宇安全專機的等級，一旦違反車用專機標準，就要從專機清單中移除。"
-Machine	A2604	"Automotive machine management
-車用機台管理"	Automotive Machine Management	"Machine performance
-機台等級"	"Automotive / functional safety/ cybersecurity machine performance is reviewed yearly.
-針對車用/ 功能安全/ 網宇安全專機能力，有執行年度複審。"
-Machine	A2605	"Automotive machine management
-車用機台管理"	Automotive Machine Management	"e-APC function
-先期製程管控功能"	"Automotive machine has e-APC function to auto trigger e-OCAP once out of trigger criteria.
-車用機台有先期製程管控功能，一旦違反規則先期指標的觸發條件，就會自動觸發e-OCAP."
-"""
-
 @st.cache_data
 def load_matrix():
     try:
-        return pd.read_csv(io.StringIO(CSV_CONTENT.strip()), encoding="utf-8-sig").to_string()
-    except:
-        return "矩陣讀取失敗"
+        # 直接讀取同資料夾下的檔案
+        df_matrix = pd.read_csv("ARR_checklist.csv", encoding="utf-8-sig")
+        return df_matrix.to_string()
+    except FileNotFoundError:
+        return "ERROR_NOT_FOUND" # 標記檔案還沒上傳
+    except Exception as e:
+        return f"ERROR_READ: {e}"
 
 MATRIX_DICTIONARY = load_matrix()
 
+# 檢查檔案是否就緒
+if MATRIX_DICTIONARY == "ERROR_NOT_FOUND":
+    st.warning("⚠️ 尚未偵測到 'ARR_checklist.csv'。請先將檔案上傳至 GitHub 同一個資料夾內。")
+    st.stop()
+elif "ERROR_READ" in MATRIX_DICTIONARY:
+    st.error(f"❌ 檔案讀取失敗：{MATRIX_DICTIONARY}")
+    st.stop()
+
 # ==========================================
-# 3. 🧠 專業稽核分析函式 (強制鎖死輸出格式)
+# 3. 🧠 專業稽核分析函式 (精準對標版)
 # ==========================================
 STRICT_SYSTEM_PROMPT = f"""
 你是一位嚴謹的 ASE 專業稽核員。
@@ -1011,16 +52,15 @@ STRICT_SYSTEM_PROMPT = f"""
 {MATRIX_DICTIONARY}
 
 【分類規則】：
-1. 只能從上方字典找出最符合的 [AXXXX] 代碼。
-2. 禁止發明字典沒有的代碼。若找不到，歸類為 [A2700] (其他事項)。
+1. 必須從上方字典找出最符合的 [AXXXX] 代碼。
+2. 禁止發明代碼。若找不到，歸類為 [A2700] (其他事項)。
 
 【判定規範】：
 1. 缺失等級：Major, Minor, OFI, Acceptable。
-2. 不符合分類：有缺失填代碼(如 C2)；無缺失或無事項，必須嚴格填寫「-」，禁止用 N/A 或無。
-3. 國際條文：填寫繁體中文。若歸類為 A2700，可填寫 N/A。
+2. 不符合分類：有缺失填代碼(如 C2)；無缺失，必須填寫「-」。
+3. 國際條文：填寫繁體中文。若歸類為 A2700，填寫 N/A。
 
-【🚨 JSON 輸出格式 (強制規定)】：
-請務必回傳 JSON 格式，並且必須嚴格使用以下 key 名稱（一個字都不能改）：
+【🚨 JSON 輸出格式 (不可變更)】：
 "專業稽核筆記", "Category Check Item", "缺失等級", "不符合分類", "ISO_條文", "IATF_條文", "VDA_條目"
 """
 
@@ -1037,7 +77,7 @@ def analyze_audit_process(items):
     
     for idx, item in enumerate(items):
         if not str(item).strip(): continue
-        status_text.text(f"⚡ 極速分析中：{idx+1}/{len(items)} ...")
+        status_text.text(f"⚡ 正在根據 ARR_checklist 進行分析：{idx+1}/{len(items)} ...")
         
         try:
             response = model.generate_content(f"分析紀錄：'{item}'。請回傳 JSON。")
@@ -1049,7 +89,6 @@ def analyze_audit_process(items):
             if non_conform.upper() in ["N/A", "無", "NONE", ""]: non_conform = "-"
             
             check_item = str(res_dict.get("Category Check Item", "A2700"))
-            if "找不到" in check_item: check_item = "A2700"
             
             all_results.append({
                 "原始紀錄": str(item),
@@ -1057,22 +96,13 @@ def analyze_audit_process(items):
                 "Category Check Item": check_item,
                 "缺失等級": str(res_dict.get("缺失等級", "Acceptable")),
                 "不符合分類": non_conform,
-                "ISO 9001:2025 條文": str(res_dict.get("ISO_條文", str(res_dict.get("ISO 9001:2025 條文", "N/A")))),
-                "IATF 16949:2016 條文": str(res_dict.get("IATF_條文", str(res_dict.get("IATF 16949:2016 條文", "N/A")))),
-                "VDA 6.3:2023 條目": str(res_dict.get("VDA_條目", str(res_dict.get("VDA 6.3:2023 條目", "N/A"))))
+                "ISO 9001:2025 條文": str(res_dict.get("ISO_條文", "N/A")),
+                "IATF 16949:2016 條文": str(res_dict.get("IATF_條文", "N/A")),
+                "VDA 6.3:2023 條目": str(res_dict.get("VDA_條目", "N/A"))
             })
-            time.sleep(0.5) # 付費版極速模式
+            time.sleep(0.5)
         except Exception as e:
-            all_results.append({
-                "原始紀錄": item, 
-                "專業稽核筆記": f"分析失敗: {e}", 
-                "Category Check Item": "A2700",
-                "缺失等級": "N/A",
-                "不符合分類": "N/A",
-                "ISO 9001:2025 條文": "N/A",
-                "IATF 16949:2016 條文": "N/A",
-                "VDA 6.3:2023 條目": "N/A"
-            })
+            all_results.append({"原始紀錄": item, "專業稽核筆記": f"分析失敗: {e}", "Category Check Item": "A2700"})
             
         progress_bar.progress((idx + 1) / len(items))
     
@@ -1080,43 +110,37 @@ def analyze_audit_process(items):
     return pd.DataFrame(all_results)
 
 # ==========================================
-# 4. 🖥️ 網頁介面 (支援上傳與貼上)
+# 4. 🖥️ 介面
 # ==========================================
-st.title("🛡️ ASE AI 智慧稽核系統 (全速正式版)")
-st.write(MATRIX_DICTIONARY)
-st.success("✅ 系統防護網已就緒，開始進行矩陣對標分析！")
+st.title("🛡️ ASE AI 智慧稽核系統 (檔案讀取正式版)")
+st.success(f"✅ 判定矩陣載入成功！目前的參考字典內含：{len(MATRIX_DICTIONARY.splitlines())} 行規範。")
 
-st.subheader("📤 第一步：上傳稽核紀錄 (Excel 或 CSV)")
-uploaded_file = st.file_uploader("選擇您的稽核清單檔案", type=["xlsx", "csv"], accept_multiple_files=False)
+st.subheader("📤 第一步：上傳待稽核紀錄 (Excel 或 CSV)")
+uploaded_file = st.file_uploader("選擇您的檔案", type=["xlsx", "csv"])
 
-st.subheader("✍️ 或者：直接在下方表格貼上紀錄")
+st.subheader("✍️ 或者：手動貼入紀錄")
 input_df = pd.DataFrame({"稽核紀錄事項": [""] * 5})
 edited_df = st.data_editor(input_df, num_rows="dynamic", use_container_width=True)
 
 if st.button("🚀 開始智慧批次對標"):
     records = []
-    
     if uploaded_file:
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-            records.extend(df.iloc[:, 0].dropna().tolist())
-        except Exception as e:
-            st.error(f"檔案讀取失敗: {e}")
-            
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+        records.extend(df.iloc[:, 0].dropna().tolist())
+    
     manual_records = edited_df["稽核紀錄事項"].dropna().tolist()
     records.extend([r for r in manual_records if str(r).strip() != ""])
     
     if records:
         final_df = analyze_audit_process(records)
-        st.session_state['final_result'] = final_df
-        st.write("### 📊 分析結果清單")
+        st.write("### 📊 分析結果")
         st.dataframe(final_df.astype(str), use_container_width=True)
         
         output = io.BytesIO()
         final_df.astype(str).to_excel(output, index=False)
-        st.download_button("📥 下載完整 Excel 分析報告", output.getvalue(), file_name="ASE_Audit_Report.xlsx")
+        st.download_button("📥 下載 Excel 報告", output.getvalue(), file_name="ASE_Audit_Report.xlsx")
     else:
-        st.warning("請先上傳檔案或在表格中輸入紀錄！")
+        st.warning("請輸入內容或上傳檔案！")

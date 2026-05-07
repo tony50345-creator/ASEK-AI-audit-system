@@ -5,7 +5,7 @@ import json
 import io
 import time
 
-st.set_page_config(page_title="ASE AI 智慧稽核系統 (檔案匯入版)", layout="wide")
+st.set_page_config(page_title="ASE AI 智慧稽核系統 (全相容正式版)", layout="wide")
 
 # ==========================================
 # 1. 🔑 雲端金鑰載入
@@ -19,31 +19,39 @@ else:
 MODEL_NAME = "models/gemini-2.5-flash" 
 
 # ==========================================
-# 2. 📂 讀取上傳至 GitHub 的 ARR_checklist.csv
+# 2. 📂 自動偵測編碼讀取 ARR_checklist.csv
 # ==========================================
 @st.cache_data
 def load_matrix():
-    try:
-        # 直接讀取同資料夾下的檔案
-        df_matrix = pd.read_csv("ARR_checklist.csv", encoding="utf-8-sig")
-        return df_matrix.to_string()
-    except FileNotFoundError:
-        return "ERROR_NOT_FOUND" # 標記檔案還沒上傳
-    except Exception as e:
-        return f"ERROR_READ: {e}"
+    # 定義可能的編碼清單 (台灣 Excel 最常出現的幾種)
+    encodings = ["utf-8-sig", "big5", "cp950", "utf-8", "gbk"]
+    
+    for enc in encodings:
+        try:
+            df_matrix = pd.read_csv("ARR_checklist.csv", encoding=enc)
+            # 成功讀取就回傳字串內容
+            return df_matrix.to_string()
+        except UnicodeDecodeError:
+            continue # 失敗就試下一種
+        except FileNotFoundError:
+            return "ERROR_NOT_FOUND"
+        except Exception as e:
+            return f"ERROR_READ_GENERAL: {e}"
+            
+    return "ERROR_ENCODING: 無法解析 CSV 編碼，請嘗試在 Excel 另存為 'CSV UTF-8 (逗號分隔)'"
 
 MATRIX_DICTIONARY = load_matrix()
 
-# 檢查檔案是否就緒
+# 檢查檔案狀態
 if MATRIX_DICTIONARY == "ERROR_NOT_FOUND":
-    st.warning("⚠️ 尚未偵測到 'ARR_checklist.csv'。請先將檔案上傳至 GitHub 同一個資料夾內。")
+    st.warning("⚠️ 尚未偵測到 'ARR_checklist.csv'。請確認檔案已上傳至 GitHub 根目錄。")
     st.stop()
-elif "ERROR_READ" in MATRIX_DICTIONARY:
-    st.error(f"❌ 檔案讀取失敗：{MATRIX_DICTIONARY}")
+elif "ERROR" in MATRIX_DICTIONARY:
+    st.error(f"❌ {MATRIX_DICTIONARY}")
     st.stop()
 
 # ==========================================
-# 3. 🧠 專業稽核分析函式 (精準對標版)
+# 3. 🧠 專業稽核分析函式
 # ==========================================
 STRICT_SYSTEM_PROMPT = f"""
 你是一位嚴謹的 ASE 專業稽核員。
@@ -77,23 +85,21 @@ def analyze_audit_process(items):
     
     for idx, item in enumerate(items):
         if not str(item).strip(): continue
-        status_text.text(f"⚡ 正在根據 ARR_checklist 進行分析：{idx+1}/{len(items)} ...")
+        status_text.text(f"⚡ 正在進行矩陣比對：{idx+1}/{len(items)} ...")
         
         try:
             response = model.generate_content(f"分析紀錄：'{item}'。請回傳 JSON。")
-            res_dict = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+            raw_text = response.text.replace("```json", "").replace("```", "").strip()
+            res_dict = json.loads(raw_text)
             if isinstance(res_dict, list): res_dict = res_dict[0]
             
-            # 強制標示處理
             non_conform = str(res_dict.get("不符合分類", "-")).strip()
             if non_conform.upper() in ["N/A", "無", "NONE", ""]: non_conform = "-"
-            
-            check_item = str(res_dict.get("Category Check Item", "A2700"))
             
             all_results.append({
                 "原始紀錄": str(item),
                 "專業稽核筆記": str(res_dict.get("專業稽核筆記", "分析完成")),
-                "Category Check Item": check_item,
+                "Category Check Item": str(res_dict.get("Category Check Item", "A2700")),
                 "缺失等級": str(res_dict.get("缺失等級", "Acceptable")),
                 "不符合分類": non_conform,
                 "ISO 9001:2025 條文": str(res_dict.get("ISO_條文", "N/A")),
@@ -112,8 +118,8 @@ def analyze_audit_process(items):
 # ==========================================
 # 4. 🖥️ 介面
 # ==========================================
-st.title("🛡️ ASE AI 智慧稽核系統 (檔案讀取正式版)")
-st.success(f"✅ 判定矩陣載入成功！目前的參考字典內含：{len(MATRIX_DICTIONARY.splitlines())} 行規範。")
+st.title("🛡️ ASE AI 智慧稽核系統 (全相容正式版)")
+st.success(f"✅ ARR 稽核清單載入成功！系統已就緒。")
 
 st.subheader("📤 第一步：上傳待稽核紀錄 (Excel 或 CSV)")
 uploaded_file = st.file_uploader("選擇您的檔案", type=["xlsx", "csv"])
@@ -125,11 +131,20 @@ edited_df = st.data_editor(input_df, num_rows="dynamic", use_container_width=Tru
 if st.button("🚀 開始智慧批次對標"):
     records = []
     if uploaded_file:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        records.extend(df.iloc[:, 0].dropna().tolist())
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                # 這裡也要用自動編碼偵測
+                for enc in ["utf-8-sig", "big5", "cp950"]:
+                    try:
+                        df = pd.read_csv(uploaded_file, encoding=enc)
+                        break
+                    except:
+                        continue
+            else:
+                df = pd.read_excel(uploaded_file)
+            records.extend(df.iloc[:, 0].dropna().tolist())
+        except Exception as e:
+            st.error(f"檔案讀取失敗: {e}")
     
     manual_records = edited_df["稽核紀錄事項"].dropna().tolist()
     records.extend([r for r in manual_records if str(r).strip() != ""])

@@ -1002,13 +1002,33 @@ def load_matrix():
 MATRIX_DICTIONARY = load_matrix()
 
 # ==========================================
-# 3. 專業稽核分析函式
+# 3. 🧠 專業稽核分析函式 (強制鎖死輸出格式)
 # ==========================================
+STRICT_SYSTEM_PROMPT = f"""
+你是一位嚴謹的 ASE 專業稽核員。
+
+【對標字典 - 唯一真理】：
+{MATRIX_DICTIONARY}
+
+【分類規則】：
+1. 只能從上方字典找出最符合的 [AXXXX] 代碼。
+2. 禁止發明字典沒有的代碼。若找不到，歸類為 [A2700] (其他事項)。
+
+【判定規範】：
+1. 缺失等級：Major, Minor, OFI, Acceptable。
+2. 不符合分類：有缺失填代碼(如 C2)；無缺失或無事項，必須嚴格填寫「-」，禁止用 N/A 或無。
+3. 國際條文：填寫繁體中文。若歸類為 A2700，可填寫 N/A。
+
+【🚨 JSON 輸出格式 (強制規定)】：
+請務必回傳 JSON 格式，並且必須嚴格使用以下 key 名稱（一個字都不能改）：
+"專業稽核筆記", "Category Check Item", "缺失等級", "不符合分類", "ISO_條文", "IATF_條文", "VDA_條目"
+"""
+
 def analyze_audit_process(items):
     model = genai.GenerativeModel(
         model_name=MODEL_NAME,
         generation_config={"temperature": 0},
-        system_instruction=f"你是ASE稽核專家。只能從以下代碼選：{MATRIX_DICTIONARY}。沒缺失則『不符合類別』填『-』。查無代碼填『A2700』。"
+        system_instruction=STRICT_SYSTEM_PROMPT
     )
     
     all_results = []
@@ -1017,65 +1037,74 @@ def analyze_audit_process(items):
     
     for idx, item in enumerate(items):
         if not str(item).strip(): continue
-        status_text.text(f"⚡ 正在分析第 {idx+1}/{len(items)} 筆...")
+        status_text.text(f"⚡ 極速分析中：{idx+1}/{len(items)} ...")
         
         try:
-            response = model.generate_content(f"分析紀錄：'{item}'。回傳 JSON。")
+            response = model.generate_content(f"分析紀錄：'{item}'。請回傳 JSON。")
             res_dict = json.loads(response.text.replace("```json", "").replace("```", "").strip())
             if isinstance(res_dict, list): res_dict = res_dict[0]
             
             # 強制標示處理
             non_conform = str(res_dict.get("不符合分類", "-")).strip()
-            if non_conform.upper() in ["N/A", "無", "NONE"]: non_conform = "-"
+            if non_conform.upper() in ["N/A", "無", "NONE", ""]: non_conform = "-"
             
             check_item = str(res_dict.get("Category Check Item", "A2700"))
             if "找不到" in check_item: check_item = "A2700"
             
             all_results.append({
                 "原始紀錄": str(item),
-                "專業稽核筆記": str(res_dict.get("專業稽核筆記", "OK")),
+                "專業稽核筆記": str(res_dict.get("專業稽核筆記", "分析完成")),
                 "Category Check Item": check_item,
                 "缺失等級": str(res_dict.get("缺失等級", "Acceptable")),
                 "不符合分類": non_conform,
-                "ISO 條文": str(res_dict.get("ISO_條文", "N/A")),
-                "IATF 條文": str(res_dict.get("IATF_條文", "N/A")),
-                "VDA 條目": str(res_dict.get("VDA_條目", "N/A"))
+                "ISO 9001:2025 條文": str(res_dict.get("ISO_條文", str(res_dict.get("ISO 9001:2025 條文", "N/A")))),
+                "IATF 16949:2016 條文": str(res_dict.get("IATF_條文", str(res_dict.get("IATF 16949:2016 條文", "N/A")))),
+                "VDA 6.3:2023 條目": str(res_dict.get("VDA_條目", str(res_dict.get("VDA 6.3:2023 條目", "N/A"))))
             })
-            time.sleep(0.5) # 付費版快如閃電
+            time.sleep(0.5) # 付費版極速模式
         except Exception as e:
-            all_results.append({"原始紀錄": item, "專業稽核筆記": f"分析失敗: {e}", "Category Check Item": "A2700"})
+            all_results.append({
+                "原始紀錄": item, 
+                "專業稽核筆記": f"分析失敗: {e}", 
+                "Category Check Item": "A2700",
+                "缺失等級": "N/A",
+                "不符合分類": "N/A",
+                "ISO 9001:2025 條文": "N/A",
+                "IATF 16949:2016 條文": "N/A",
+                "VDA 6.3:2023 條目": "N/A"
+            })
+            
         progress_bar.progress((idx + 1) / len(items))
     
     status_text.empty()
     return pd.DataFrame(all_results)
 
 # ==========================================
-# 4. 網頁介面 (恢復原本的多功能介面)
+# 4. 🖥️ 網頁介面 (支援上傳與貼上)
 # ==========================================
-st.title("🛡️ ASE AI 智慧稽核專業系統")
-st.success("雲端付費版已就緒，支援 Excel/CSV 批次上傳")
+st.title("🛡️ ASE AI 智慧稽核系統 (全速正式版)")
+st.success("✅ 系統防護網已就緒，開始進行矩陣對標分析！")
 
-# 區塊 A：檔案上傳 (把原本的功能抓回來)
 st.subheader("📤 第一步：上傳稽核紀錄 (Excel 或 CSV)")
 uploaded_file = st.file_uploader("選擇您的稽核清單檔案", type=["xlsx", "csv"], accept_multiple_files=False)
 
-# 區塊 B：手動貼入 (保留彈性)
-st.subheader("✍️ 或者：在下方表格直接貼上紀錄")
+st.subheader("✍️ 或者：直接在下方表格貼上紀錄")
 input_df = pd.DataFrame({"稽核紀錄事項": [""] * 5})
 edited_df = st.data_editor(input_df, num_rows="dynamic", use_container_width=True)
 
-if st.button("🚀 開始執行全量智慧分析"):
+if st.button("🚀 開始智慧批次對標"):
     records = []
-    # 讀取上傳檔案
-    if uploaded_file:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        # 假設第一欄就是稽核事項
-        records.extend(df.iloc[:, 0].dropna().tolist())
     
-    # 讀取手動輸入
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+            records.extend(df.iloc[:, 0].dropna().tolist())
+        except Exception as e:
+            st.error(f"檔案讀取失敗: {e}")
+            
     manual_records = edited_df["稽核紀錄事項"].dropna().tolist()
     records.extend([r for r in manual_records if str(r).strip() != ""])
     
@@ -1085,7 +1114,6 @@ if st.button("🚀 開始執行全量智慧分析"):
         st.write("### 📊 分析結果清單")
         st.dataframe(final_df.astype(str), use_container_width=True)
         
-        # 匯出 Excel
         output = io.BytesIO()
         final_df.astype(str).to_excel(output, index=False)
         st.download_button("📥 下載完整 Excel 分析報告", output.getvalue(), file_name="ASE_Audit_Report.xlsx")

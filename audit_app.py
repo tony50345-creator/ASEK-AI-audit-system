@@ -9,7 +9,7 @@ import time
 # 1. 雲端安全金鑰 (請至 Streamlit Cloud 設定 Secrets)
 # ==========================================
 try:
-    API_KEY = st.secrets["AIzaSyD74PL1E3bsh-zuam4oJ4ZltQCQMwLEDa8"]
+    API_KEY = st.secrets["AIzaSyCF2Adr1m2jk8OmT6NpWyhH6czeEuuAtWU"]
 except:
     st.error("❌ 找不到 API_KEY！請在 Streamlit Cloud 的 Advanced Settings -> Secrets 設定。")
     st.stop()

@@ -1083,6 +1083,7 @@ def analyze_audit_process(items):
 # 4. 🖥️ 網頁介面 (支援上傳與貼上)
 # ==========================================
 st.title("🛡️ ASE AI 智慧稽核系統 (全速正式版)")
+st.write(MATRIX_DICTIONARY)
 st.success("✅ 系統防護網已就緒，開始進行矩陣對標分析！")
 
 st.subheader("📤 第一步：上傳稽核紀錄 (Excel 或 CSV)")

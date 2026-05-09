@@ -6,7 +6,7 @@ import io
 import time
 import re
 
-st.set_page_config(page_title="ASE AI 智慧稽核系統 (終極穩定版)", layout="wide")
+st.set_page_config(page_title="莊大帥的 AI 智慧稽核系統", layout="wide")
 
 # ==========================================
 # 1. 🔑 金鑰載入
@@ -42,6 +42,7 @@ STRICT_SYSTEM_PROMPT = f"""
 【絕對禁令】：
 - 嚴禁在條文欄位中顯示『ISO 9001』、『IATF 16949』或版本號字眼。
 - 嚴禁衍生原始紀錄中未提到的缺失。
+- 一致性要求：如果是同樣的現象重複詢問，必須確保每次的判定結果都完全相同。
 
 【對標字典】：{MATRIX_DICTIONARY}
 
@@ -117,7 +118,7 @@ def analyze_audit_process(items):
 # ==========================================
 # 4. 🖥️ 介面
 # ==========================================
-st.title("🛡️ ASE AI 智慧稽核系統 (終極穩定版)")
+st.title("🛡️ 莊大帥的 AI 智慧稽核系統")
 st.success("✅ 已啟動：物理格式清洗、母子項強制同步、事實潤飾隔離。")
 
 uploaded_file = st.file_uploader("上傳檔案", type=["xlsx", "csv"])

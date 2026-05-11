@@ -6,21 +6,25 @@ import io
 import time
 import re
 
-st.set_page_config(page_title="ASE AI 智慧稽核系統 (終極穩定版)", layout="wide")
+# ==========================================
+# 0. 網頁配置
+# ==========================================
+st.set_page_config(page_title="🛡️ 莊大帥 AI 智慧稽核系統 (2.5 旗艦版)", layout="wide")
 
 # ==========================================
-# 1. 🔑 金鑰載入
+# 1. 🔑 API 金鑰與引擎
 # ==========================================
 if "API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["API_KEY"])
 else:
-    st.error("❌ 找不到 API_KEY！")
+    st.error("❌ 找不到 API_KEY！請檢查 .streamlit/secrets.toml")
     st.stop()
 
+# 使用大帥診斷出的 2.5 Flash 引擎
 MODEL_NAME = "models/gemini-2.5-flash" 
 
 # ==========================================
-# 2. 📂 讀取 ARR_checklist.csv
+# 2. 📂 讀取對標字典 (ARR_checklist.csv)
 # ==========================================
 @st.cache_data
 def load_matrix():
@@ -28,119 +32,137 @@ def load_matrix():
     for enc in encodings:
         try:
             df = pd.read_csv("ARR_checklist.csv", encoding=enc)
-            return df.to_string()
-        except: continue
-    return "ERROR_READ"
+            return df.to_string(index=False)
+        except:
+            continue
+    return "無法讀取字典檔案。"
 
 MATRIX_DICTIONARY = load_matrix()
 
 # ==========================================
-# 3. 🧠 專業顧問分析邏輯 (硬邏輯約束版)
+# 3. 🧠 首席稽核專家 System Prompt (版次鎖定版)
 # ==========================================
 STRICT_SYSTEM_PROMPT = f"""
-你是一位極度嚴謹、絕不犯錯的 ASE 首席品質稽核專家。
-【絕對禁令】：
-- 嚴禁在條文欄位中顯示『ISO 9001』、『IATF 16949』或版本號字眼。
-- 嚴禁衍生原始紀錄中未提到的缺失。
+你是一位極度嚴謹的「ASE 首席品質稽核專家」。請依據最新國際標準分析稽核紀錄。
 
-【對標字典】：{MATRIX_DICTIONARY}
+【📚 核心對標字典】：
+{MATRIX_DICTIONARY}
 
-【🔒 硬性判定邏輯】：
-1. **母子項垂直同步**：IATF 條文必須是 ISO 9001 條文的延伸。若 ISO 是第 8 章，IATF 絕不能跑去第 7 章。
-2. **純事實潤飾**：僅將原始紀錄轉化為專業稽核語言。若無明確異常，等級必須是 Acceptable。
-3. **格式清理**：條文僅允許呈現『編號 + 中文標題』。
+【🔒 核心原則 1：最新標準版次意識】
+- 你的分析邏輯必須基於：ISO 9001:2015、IATF 16949:2016、VDA 6.3:2023。
+- **輸出限制**：在 ISO、IATF、VDA 欄位中，僅輸出「編號 + 中文標題」。
+- **基於筆記找法規 (核心要求)**：【不要參考 CSV 檔中的法規對應】。請直接基於你大腦中最新的國際標準知識庫 (ISO 9001:2015, IATF 16949:2016, VDA 6.3:2023)，為「專業稽核筆記」找出最精準、最合適的條文。
+- **若 ISO 對標為 8.x，IATF 就必須對標 8.x。嚴禁發生 ISO 選 7.x 但 IATF 選 8.x 的邏輯錯誤！
+- **嚴禁顯示年份**：例如，應輸出「8.5.1 生產和服務提供的控制」，絕對禁止出現「:2015」或「:2016」等字樣。
 
-【分析 SOP】：
-Step 1. 潤飾：轉化為專業 ISO 術語。
-Step 2. 代碼：對標字典找出 AXXXX。
-Step 3. 條文：先定 ISO 編號 -> 再定 IATF 編號 -> 根據主體判定 VDA 條目。
-Step 4. 理由：若為 N/A，必須在括號內註明原因。
+【🔒 核心原則 2：潤飾與本質一致性】
+- **專業潤飾**：將原始紀錄轉化為中性專業術語。
+- **忠於原意**：絕對禁止將「通過 (Acceptable)」的紀錄改寫為具有缺失傾向的語句。
 
-【JSON 輸出範例】：
-{{
-  "潤飾": "設備重新配置與配置驗收...",
-  "代碼": "A0203 設備重新配置",
-  "等級": "Acceptable",
-  "分類": "-",
-  "ISO": "8.5.1 生產與服務提供之管制",
-  "IATF": "8.5.1.1 設備重新配置",
-  "VDA": "P6.2.2 過程資源",
-  "建議": "確認驗收紀錄之完整性"
-}}
+【🔒 核心原則 3：Category Check Item 歸類】
+- **參考清單**：請參考以下提供的代碼清單進行 AXXXX 代碼歸類：
+  {MATRIX_DICTIONARY}
+- **A2700 防呆**：若在清單中找不到與「專業稽核筆記」高度契合的代碼，請統一歸類為「A2700 其他」。
+
+【🔒 核心原則 4：條文範疇與 N/A】
+- **ISO / IATF**：章節必須同步 (如 8.x 對 8.x)。
+- **VDA 6.3**：僅限 **P2~P7**。嚴禁輸出 Q 開頭編號。
+- **防瞎掰**：字典中找不到的條文，必須輸出 "N/A"。
+
+【🔒 核心原則 5：缺失等級 (Grade) 選擇範圍】：
+- **Major** (嚴重缺失)
+- **Minor** (一般缺失)
+- **OFI** (改善機會)
+- **Acceptable** (通過)
+
+【🔒 核心原則 6：不符合分類 (Category) 輸出格式】：
+若等級非 Acceptable，分類必須輸出「CX 中文描述」。選項如下：
+- **C1 系統未定義** | **C2 定義未遵循** | **C3 做了未文件化** | **C4 程序不清**
+- **C5 程序不符合** | **C6 缺失重複** | **C7 改善機會** | **C8 觀察事項**
+* 注意：若等級為 Acceptable，分類必須固定輸出 "**-**"。
+
+🔒 核心原則 7：專家導師建議 (Mandatory Insight)】
+- **不論是否為缺失，皆須回覆建議**。
+- 建議內容必須包含：
+  1. 【深入詢問】：後續稽核時可以再追問的細節。
+  2. 【潛在遺漏】：本次紀錄中可能沒看到但很關鍵的檢查點。
+  3. 【補強建議】：未來如何讓該項目的執行更加穩健。
+
+【📋 JSON 欄位要求】：
+"潤飾"、"代碼"(AXXXX 中文)、"等級"、"分類"、"ISO"、"IATF"、"VDA"、"建議與備註"。
+* 絕對警告：任何欄位嚴禁輸出 null 或 None！
 """
 
 def analyze_audit_process(items):
-    # 溫度設為 0 確保高度一致性
-    model = genai.GenerativeModel(model_name=MODEL_NAME, generation_config={"temperature": 0}, system_instruction=STRICT_SYSTEM_PROMPT)
-    all_results = []
-    progress_bar = st.progress(0)
+    model = genai.GenerativeModel(
+        model_name=MODEL_NAME, 
+        generation_config={
+            "temperature": 0, 
+            "response_mime_type": "application/json"
+        }, 
+        system_instruction=STRICT_SYSTEM_PROMPT
+    )
     
-    # 物理清理函數：強制移除 ISO/IATF 等字眼
-    def force_clean(text):
-        if not text or text == "-": return "-"
-        # 移除常見的標準名稱標籤
-        cleaned = re.sub(r'(ISO\s*9001|IATF\s*16949|VDA\s*6\.3|:2015|:2016|:2023)', '', text, flags=re.IGNORECASE)
-        return cleaned.strip()
-
-    for idx, item in enumerate(items):
-        if not str(item).strip(): continue
-        try:
-            response = model.generate_content(f"分析：'{item}'")
-            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
-            
-            if json_match:
-                res = json.loads(json_match.group())
-            else:
-                res = {{"潤飾": item, "代碼": "A2700 其他事項", "等級": "Acceptable", "分類": "-", "ISO": "N/A", "IATF": "N/A", "VDA": "N/A", "建議": "解析失敗"}}
-
-            grade = str(res.get("等級", "Acceptable")).strip()
-            
-            # 整理結果並進行物理清理
-            all_results.append({
-                "原始紀錄": str(item),
+    combined_query = "\n".join([f"紀錄 {idx+1}: {item}" for idx, item in enumerate(items)])
+    status = st.empty()
+    status.info(f"🚀 2.5 引擎正在分析中 (共 {len(items)} 筆)...")
+    
+    try:
+        start_time = time.time()
+        response = model.generate_content(f"請依潤飾後語意執行精準對標，找不到則 N/A：\n{combined_query}")
+        results_list = json.loads(response.text)
+        
+        final_results = []
+        for idx, res in enumerate(results_list):
+            # 將 AI 產出的結果映射到帶有版次備註的表頭
+            final_results.append({
+                "原始紀錄": items[idx] if idx < len(items) else "-",
                 "專業稽核筆記 (潤飾)": res.get("潤飾", "-"),
-                "Category Check Item": res.get("代碼", "A2700 其他事項"),
-                "缺失等級": grade,
-                "不符合分類": "-" if grade == "Acceptable" else str(res.get("分類", "C2")),
-                "ISO 9001 條文": force_clean(res.get("ISO", "N/A")),
-                "IATF 16949 條文": force_clean(res.get("IATF", "N/A")),
-                "VDA 6.3 條目": force_clean(res.get("VDA", "N/A")),
-                "建議與備註": res.get("建議", "-")
+                "Category Check Item": res.get("代碼", "A2700 其他"),
+                "缺失等級": res.get("等級", "Acceptable"),
+                "不符合分類 (CX)": res.get("分類", "-"),
+                "ISO 9001 條文 (2015版)": res.get("ISO", "N/A"),
+                "IATF 16949 條文 (2016版)": res.get("IATF", "N/A"),
+                "VDA 6.3 條目 (2023版)": res.get("VDA", "N/A"),
+                "建議與備註": res.get("建議與備註", "-")
             })
-            time.sleep(0.5)
-        except Exception as e:
-            all_results.append({"原始紀錄": item, "專業稽核筆記 (潤飾)": f"錯誤: {e}", "Category Check Item": "A2700"})
             
-        progress_bar.progress((idx + 1) / len(items))
-    return pd.DataFrame(all_results)
+        end_time = time.time()
+        status.success(f"✅ 分析完成！總耗時：{round(end_time - start_time, 2)} 秒")
+        return pd.DataFrame(final_results)
+    except Exception as e:
+        status.error(f"❌ 發生錯誤：{e}")
+        return pd.DataFrame([{"原始紀錄": i, "潤飾": "分析失敗"} for i in items])
 
 # ==========================================
-# 4. 🖥️ 介面
+# 4. 🖥️ 使用介面
 # ==========================================
-st.title("🛡️ ASE AI 智慧稽核系統 (終極穩定版)")
-st.success("✅ 已啟動：物理格式清洗、母子項強制同步、事實潤飾隔離。")
+st.title("🛡️ 莊大帥的 AI 智慧稽核系統")
+st.markdown("**核心優化：** 國際法規版次鎖定 (ISO:2015 / IATF:2016 / VDA:2023)")
 
-uploaded_file = st.file_uploader("上傳檔案", type=["xlsx", "csv"])
-input_df = pd.DataFrame({"稽核紀錄事項": [""] * 3})
-edited_df = st.data_editor(input_df, num_rows="dynamic", use_container_width=True)
+# 初始化輸入區域
+if 'input_data' not in st.session_state:
+    st.session_state.input_data = pd.DataFrame({"稽核紀錄事項": [""] * 3})
 
-if st.button("🚀 執行深度穩定分析"):
-    records = []
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-            records.extend(df.iloc[:, 0].dropna().tolist())
-        except Exception as e: st.error(f"檔案讀取失敗: {e}")
-            
-    records.extend([r for r in edited_df["稽核紀錄事項"].dropna().tolist() if str(r).strip() != ""])
-    
+edited_df = st.data_editor(st.session_state.input_data, num_rows="dynamic", use_container_width=True)
+
+if st.button("🚀 執行最新版次精準分析", use_container_width=True):
+    records = [r for r in edited_df["稽核紀錄事項"].dropna().tolist() if str(r).strip() != ""]
     if records:
         final_df = analyze_audit_process(records)
-        st.write("### 📊 稽核報告 (標準一致性鎖定)")
+        
+        # 顯示結果表格
         st.dataframe(final_df.astype(str), use_container_width=True)
         
+        # 產生 Excel 下載
         output = io.BytesIO()
-        final_df.to_excel(output, index=False)
-        st.download_button("📥 下載 Excel 報告", output.getvalue(), file_name="ASE_Audit_Report.xlsx")
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            final_df.to_excel(writer, index=False, sheet_name='Report')
+        st.download_button(
+            label="📥 下載最新版次稽核報告 (Excel)",
+            data=output.getvalue(),
+            file_name="ASE_Smart_Audit_Report_2026.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     else:
-        st.warning("請輸入內容！")
+        st.warning("請在上方表格輸入稽核紀錄內容！")
